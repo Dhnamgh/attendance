@@ -3,23 +3,31 @@ import time, datetime
 import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
-import qrcode, io
-from PIL import Image
+
+try:
+    from streamlit_geolocation import streamlit_geolocation
+except:
+    streamlit_geolocation = None
+
+from math import radians, sin, cos, sqrt, atan2
 
 # ================= CONFIG =================
 st.set_page_config(page_title="Attendance System", layout="wide")
 
+# ✅ LẤY TỪ SECRETS (KHÔNG HARD-CODE)
+GV_SHEET = st.secrets["GV_SHEET"]
+SV_SHEET = st.secrets["SV_SHEET"]
+ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
+
+LAT_CENTER = st.secrets.get("LAT_CENTER", 10.754665)
+LON_CENTER = st.secrets.get("LON_CENTER", 106.663381)
+RADIUS = st.secrets.get("RADIUS", 100)
+
 QR_TTL = 30
-SESSION_TTL = 120
-
-SCOPES = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive",
-]
-
-SHEET_KEY = st.secrets["SHEET_KEY"]
 
 # ================= GOOGLE =================
+SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+
 @st.cache_resource
 def client():
     creds = Credentials.from_service_account_info(
@@ -28,133 +36,162 @@ def client():
     )
     return gspread.authorize(creds)
 
-def sheet(name):
-    return client().open_by_key(SHEET_KEY).worksheet(name)
+def sheet(key):
+    return client().open_by_key(key).sheet1
 
 @st.cache_data(ttl=5)
-def load(name):
-    return sheet(name).get_all_records()
+def load(key):
+    return sheet(key).get_all_records()
 
-def append(name, row):
-    sheet(name).append_row(row)
+def append(key, row):
+    sheet(key).append_row(row)
+
+# ================= GPS =================
+def distance(lat1, lon1, lat2, lon2):
+    R = 6371000
+    dlat = radians(lat2 - lat1)
+    dlon = radians(lon2 - lon1)
+    a = sin(dlat/2)**2 + cos(radians(lat1))*cos(radians(lat2))*sin(dlon/2)**2
+    return 2 * R * atan2(sqrt(a), sqrt(1-a))
+
+def check_location():
+    if not streamlit_geolocation:
+        st.warning("Không có module GPS")
+        return False
+
+    loc = streamlit_geolocation()
+
+    if loc and loc.get("latitude"):
+        d = distance(
+            LAT_CENTER, LON_CENTER,
+            loc["latitude"], loc["longitude"]
+        )
+        return d <= RADIUS
+
+    st.warning("Không lấy được vị trí")
+    return False
 
 # ================= TOKEN =================
 def token():
     return int(time.time() // QR_TTL)
 
-def valid(t):
-    try:
-        return abs(int(t) - token()) <= 1
-    except:
-        return False
+# ================= CHECK-IN =================
+def checkin(sheet_id, id_value, name):
+
+    data = load(sheet_id)
+    df = pd.DataFrame(data)
+
+    if id_value not in df.iloc[:, 0].astype(str).values:
+        st.error("Không tồn tại trong danh sách")
+        return
+
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    append(sheet_id, ["LOG", id_value, name, "IN", now])
+
+    st.success("Check-in thành công")
+
+def checkout(sheet_id, id_value):
+
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    append(sheet_id, ["LOG", id_value, "", "OUT", now])
+
+    st.success("Check-out thành công")
 
 # ================= STUDENT =================
 def student_view():
-    qp = st.query_params
 
-    if qp.get("sv") != "1":
-        st.info("Quét mã hoặc mở link để điểm danh")
-        return
-
-    class_id = qp.get("class", "D25C")
-    session = qp.get("session", "Buổi 1")
-    t = qp.get("t")
-
-    st.title(f"🎓 {class_id} - {session}")
-
-    key = f"{class_id}_{session}"
-    now = time.time()
-
-    if key not in st.session_state:
-        if not valid(t):
-            st.error("Link điểm danh đã hết hạn")
-            return
-        st.session_state[key] = now
-    else:
-        if now - st.session_state[key] > SESSION_TTL:
-            st.warning("Hết phiên, vui lòng mở link mới")
-            return
+    st.subheader("Sinh viên")
 
     mssv = st.text_input("MSSV")
     name = st.text_input("Họ tên")
 
-    if st.button("✅ Check-in"):
-
-        students = pd.DataFrame(load("STUDENTS"))
-        logs = pd.DataFrame(load("LOG"))
-
-        if mssv not in students["MSSV"].astype(str).values:
-            st.error("MSSV không tồn tại")
+    if st.button("Check-in"):
+        if not check_location():
+            st.error("Ngoài khu vực cho phép")
             return
+        checkin(SV_SHEET, mssv, name)
 
-        if not logs.empty:
-            dup = logs[
-                (logs["MSSV"] == mssv) &
-                (logs["Session"] == session)
-            ]
-            if not dup.empty:
-                st.warning("Đã điểm danh rồi")
-                return
+    if st.button("Check-out"):
+        checkout(SV_SHEET, mssv)
 
-        now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+# ================= LECTURER =================
+def lecturer_view():
 
-        append("LOG", [
-            now_str, mssv, name, class_id, session, "IN"
-        ])
+    st.subheader("Giảng viên")
 
-        st.success("✅ Điểm danh thành công")
+    msgv = st.text_input("MSGV")
+    name = st.text_input("Họ tên")
+
+    if st.button("Check-in"):
+        if not check_location():
+            st.error("Ngoài khu vực cho phép")
+            return
+        checkin(GV_SHEET, msgv, name)
+
+    if st.button("Check-out"):
+        checkout(GV_SHEET, msgv)
 
 # ================= QR =================
 def qr_view():
-    st.subheader("📸 Tạo QR / Link điểm danh")
 
-    class_id = st.selectbox("Class", ["D25C"])
-    session = st.selectbox("Session", [f"Buổi {i}" for i in range(1,7)])
+    import qrcode, io
+    from PIL import Image
 
+    st.subheader("QR và Link")
+
+    role = st.selectbox("Loại", ["SV", "GV"])
     placeholder = st.empty()
 
     while True:
         t = token()
-
-        base_url = st.secrets.get("APP_URL", "")
-        url = f"{base_url}/?sv=1&class={class_id}&session={session}&t={t}"
+        url = f"?role={role}&t={t}"
 
         qr = qrcode.make(url)
+
         buf = io.BytesIO()
         qr.save(buf)
         buf.seek(0)
 
         placeholder.image(Image.open(buf), width=250)
-
         st.caption(url)
+
         time.sleep(1)
 
-# ================= DASHBOARD =================
-def dashboard():
-    st.subheader("📊 Dashboard")
+# ================= ADMIN =================
+def admin_view():
 
-    df = pd.DataFrame(load("LOG"))
+    pw = st.text_input("Mật khẩu", type="password")
 
-    if df.empty:
-        st.info("Chưa có dữ liệu")
+    if pw != ADMIN_PASSWORD:
         return
 
-    st.metric("Tổng lượt điểm danh", len(df))
+    st.success("Đã đăng nhập")
 
-    st.bar_chart(df.groupby("Session").size())
+    st.write("Dữ liệu Sinh viên")
+    st.dataframe(pd.DataFrame(load(SV_SHEET)))
+
+    st.write("Dữ liệu Giảng viên")
+    st.dataframe(pd.DataFrame(load(GV_SHEET)))
 
 # ================= MAIN =================
-tab1, tab2, tab3 = st.tabs([
-    "🎓 Sinh viên",
-    "📸 QR",
-    "📊 Dashboard"
+
+tab1, tab2, tab3, tab4 = st.tabs([
+    "Sinh viên",
+    "Giảng viên",
+    "QR",
+    "Quản trị"
 ])
 
 with tab1:
     student_view()
 
 with tab2:
-    qr_view()
+    lecturer_view()
 
 with tab3:
-    dashboard()
+    qr_view()
+
+with tab4:
+    admin_view()
