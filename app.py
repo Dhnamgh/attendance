@@ -31,9 +31,9 @@ except Exception:
 GV_SHEET_KEY = st.secrets["GV_SHEET"]
 SV_SHEET_KEY = st.secrets["SV_SHEET"]
 
-# Tên sheet danh sách mặc định (Cơ sở dữ liệu gốc)
-STAFF_SHEET_NAME = st.secrets.get("STAFF_SHEET_NAME", "NhanSu") # Cho GV
-STUDENT_SHEET_NAME = "D25AC"                                    # Tên lớp SV theo file mới của thầy
+# Tên sheet danh sách gốc (Cơ sở dữ liệu danh sách lớp)
+STAFF_SHEET_NAME = st.secrets.get("STAFF_SHEET_NAME", "NhanSu") 
+STUDENT_SHEET_NAME = "D26A"                                     # ĐÃ CẬP NHẬT: Tên lớp Sinh viên mới theo yêu cầu của thầy
 LOG_SHEET_NAME = st.secrets.get("LOG_SHEET_NAME", "Log")
 
 VN_TZ = datetime.timezone(datetime.timedelta(hours=7))
@@ -54,7 +54,7 @@ AFTERNOON_LESSONS = [7, 8, 9, 10, 11]
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
 
-# Định dạng các cột trên file Google Sheet đồng bộ 100% theo hình ảnh và file mẫu của thầy
+# Định dạng các cột trên file Google Sheet đồng bộ 100% theo đúng biểu mẫu nhật ký (Log) của thầy
 LOG_COLUMNS = [
     "Ngày", "MSGV", "Họ và tên", "Đơn vị", "Bộ môn", 
     "CS", "Ca", "IN/OUT", "Giờ", "Timestamp", 
@@ -154,7 +154,7 @@ def verify_gps_location(campus_code):
         return False
     loc = streamlit_geolocation()
     if not loc:
-        st.warning("📡 Đang kết nối vệ tinh GPS... Vui lòng đồng ý cấp quyền vị trí cho trình duyệt.")
+        st.warning("📡 Đang kết nối dữ liệu GPS... Vui lòng đồng ý cấp quyền truy cập vị trí trên trình duyệt thiết bị.")
         return False
     lat, lon = loc.get("latitude"), loc.get("longitude")
     if lat is None or lon is None:
@@ -175,7 +175,7 @@ def find_user_by_code(user_type, sheet_key, code_input):
     headers = values[0]
     hn = [norm_header(h) for h in headers]
     
-    # Phân loại cột mã số động theo tiêu đề biểu mẫu của thầy (MSSV/MSGV)
+    # Tự động bắt vị trí cột mã số định danh dựa theo header (MSSV / MSGV)
     msgv_i = hn.index("msgv") if "msgv" in hn else (hn.index("mssv") if "mssv" in hn else 0)
     name_i = hn.index("hovaten") if "hovaten" in hn else 1
     unit_i = hn.index("donvi") if "donvi" in hn else 2
@@ -218,6 +218,7 @@ def render_attendance_flow(user_type, sheet_key):
         st.error("Chủ nhật hệ thống không hỗ trợ ghi nhận điểm danh.")
         st.stop()
         
+    # Ép quét vị trí thực tế cho cả Giảng viên và Sinh viên để chống điểm danh hộ từ xa
     if not verify_gps_location(campus_code): st.stop()
     
     shift = infer_shift()
@@ -239,7 +240,7 @@ def render_attendance_flow(user_type, sheet_key):
     
     if st.button("Xác nhận điểm danh", type="primary", use_container_width=True, key=f"btn_{user_type}"):
         if len(code_suffix.strip()) != 4 or not code_suffix.isdigit():
-            st.warning("Yêu cầu nhập chính xác 4 chữ số cuối mã số.")
+            st.warning("Yêu cầu nhập chính xác 4 chữ số cuối mã số định danh.")
             st.stop()
             
         user_info = find_user_by_code(user_type, sheet_key, code_suffix)
@@ -250,18 +251,19 @@ def render_attendance_flow(user_type, sheet_key):
         lw = get_ws_by_title(sheet_key, LOG_SHEET_NAME, is_log=True)
         ensure_header(lw, LOG_COLUMNS)
         
-        # Tính số phút muộn so với mốc phân công
+        # Tính số phút muộn so với mốc phân công học/dạy
         start_t = datetime.datetime.strptime(info_tiet["start_time"], "%H:%M").time()
         start_dt = datetime.datetime.combine(now_vn().date(), start_t, tzinfo=VN_TZ)
         late_min = max(0, int((now_vn() - start_dt).total_seconds() // 60)) if action == "IN" else 0
         
+        # Chặn giờ ra ca sớm nếu chưa hết giờ học/giờ dạy
         if action == "OUT":
             end_t = datetime.datetime.strptime(info_tiet["end_time"], "%H:%M").time()
             if now_vn().time() < end_t:
                 st.error(f"❌ Chưa đến thời điểm ra ca! Khung giờ kết thúc quy định là {info_tiet['end_time']}.")
                 st.stop()
                 
-        # Ghi nhận dữ liệu Log với cấu hình cột thống nhất theo hình vẽ thực tế
+        # Thực hiện append hàng dữ liệu Log đồng bộ cấu trúc 100% theo hình vẽ thực tế
         _google_api_retry(lambda: lw.append_row([
             today_str(), user_code_full, user_info["Họ và tên"], user_info["Đơn vị"], user_info["Bộ môn"],
             campus_code, shift, action, now_vn().strftime("%H:%M:%S"), timestamp_str(),
@@ -337,7 +339,6 @@ def render_admin_dashboard_flow():
         if st.button("Bắt đầu tìm kiếm", use_container_width=True):
             ws = get_ws_by_title(active_sheet_key, target_sheet)
             rows = get_all_records_by_header(ws)
-            # Tự bắt khóa cột đầu làm khóa tìm kiếm số (MSSV/MSGV)
             if rows:
                 col_code = list(rows[0].keys())[0]
                 if q.isdigit(): rows = [r for r in rows if norm_digits(r.get(col_code)).endswith(q) or norm_digits(r.get(col_code)) == q]
@@ -379,7 +380,7 @@ def render_admin_dashboard_flow():
                 if v_rep.empty: st.success("Ghi nhận: Không có vi phạm trong phạm vi lọc.")
                 else: st.dataframe(v_rep, use_container_width=True)
 
-# ===================== PHÂN LUỒNG URL CHÍNH CHUẨN XÁC ĐÃ FIX LỖI CACHE =====================
+# ===================== PHÂN LUỒNG URL CHÍNH (ROUTING CHUẨN) =====================
 if "gv" in st.query_params and str(st.query_params["gv"]) == "1":
     render_attendance_flow("GV", GV_SHEET_KEY)
 elif "sv" in st.query_params and str(st.query_params["sv"]) == "1":
@@ -387,7 +388,7 @@ elif "sv" in st.query_params and str(st.query_params["sv"]) == "1":
 else:
     render_admin_dashboard_flow()
 
-# ===================== FOOTER CHÂN TRANG BẢN QUYỀN ĐỒNG BỘ CỦA THẦY =====================
+# ===================== FOOTER CHÂN TRANG BẢN QUYỀN ĐỒNG BỘ =====================
 st.markdown(
     """
     <style>
