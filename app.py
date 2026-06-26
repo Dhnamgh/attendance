@@ -13,80 +13,53 @@ ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
 
 VN_TZ = datetime.timezone(datetime.timedelta(hours=7))
 
-# ================= CSS (KHÔNG PHÁ SIDEBAR) =================
+# ================= CSS NHẸ (KHÔNG PHÁ) =================
 st.markdown("""
 <style>
-.block-container {padding-top:0.5rem;}
 
-/* HEADER */
-.header {
-    height:60px;
-    background:#2c6b95;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    border-radius:4px;
-}
-.header-title{
-    color:white;
-    font-size:22px;
-    font-weight:600;
-}
-
-/* SIDEBAR (CHỈ STYLE, KHÔNG ĐỤNG CẤU TRÚC) */
+/* chỉ style màu, không override position */
 section[data-testid="stSidebar"] {
-    background:#2c6b95 !important;
+    background: #2c6b95;
 }
-section[data-testid="stSidebar"] *{
-    color:white !important;
-    font-size:16px !important;
-}
-
-/* CONTENT */
-.container{
-    max-width:1000px;
-    margin:auto;
+section[data-testid="stSidebar"] * {
+    color: white;
 }
 
-/* CARD */
-.card{
+/* title */
+.main-title {
+    font-size:26px;
+    font-weight:600;
+    text-align:center;
+    margin-bottom:20px;
+}
+
+/* card */
+.card {
     background:white;
-    padding:18px;
-    border-radius:8px;
+    padding:20px;
+    border-radius:10px;
     margin-top:20px;
 }
 
-/* FOOTER */
-.footer{
-    position:fixed;
-    bottom:0;
-    left:0;
-    right:0;
-    background:#2b2f65;
-    color:white;
-    text-align:center;
-    padding:10px;
-    font-size:13px;
+/* mobile */
+@media (max-width:768px){
+    .main-title {font-size:20px;}
 }
+
 </style>
 """, unsafe_allow_html=True)
 
 # ================= HEADER =================
-st.markdown("""
-<div class="header">
-    <div class="header-title">HỆ THỐNG ĐIỂM DANH</div>
-</div>
-""", unsafe_allow_html=True)
+st.markdown("<div class='main-title'>HỆ THỐNG ĐIỂM DANH</div>", unsafe_allow_html=True)
 
 # ================= SIDEBAR =================
 
-# ✅ LOGO CHUẨN – KHÔNG HTML
+# ✅ CÁI NÀY LÀ ĐOẠN QUYẾT ĐỊNH LOGO
 st.sidebar.image("h.png", use_container_width=True)
 
 menu = st.sidebar.radio(
     "",
-    ["Giảng viên","Sinh viên","Quản trị"],
-    key="menu"
+    ["Giảng viên","Sinh viên","Quản trị"]
 )
 
 # ================= GOOGLE =================
@@ -128,9 +101,6 @@ def calc(shift,f,t):
     arr=[x for x in allowed if f<=x<=t]
     return arr, LESSON[arr[0]][0], LESSON[arr[-1]][1]
 
-# ================= CONTENT =================
-st.markdown("<div class='container'>", unsafe_allow_html=True)
-
 # ================= GIẢNG VIÊN =================
 if menu=="Giảng viên":
     st.markdown("<div class='card'>", unsafe_allow_html=True)
@@ -148,11 +118,9 @@ if menu=="Giảng viên":
 
     if st.button("Check-in"):
         append(GV_SHEET,[today(),msgv,name,ca,f,t,len(arr),s,e,"IN",now().strftime("%H:%M:%S")])
-        st.success("Đã vào ca")
 
     if st.button("Check-out"):
         append(GV_SHEET,[today(),msgv,name,ca,"","","","","","OUT",now().strftime("%H:%M:%S")])
-        st.success("Đã ra ca")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -173,44 +141,39 @@ elif menu=="Sinh viên":
 
     if st.button("Check-in SV"):
         append(SV_SHEET,[today(),mssv,name,ca,f,t,len(arr),s,e,"IN",now().strftime("%H:%M:%S")])
-        st.success("Đã vào")
 
     if st.button("Check-out SV"):
         append(SV_SHEET,[today(),mssv,name,ca,"","","","","","OUT",now().strftime("%H:%M:%S")])
-        st.success("Đã ra")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ================= QUẢN TRỊ =================
+# ================= ADMIN =================
 else:
     st.markdown("<div class='card'>", unsafe_allow_html=True)
 
-    st.subheader("Quản trị hệ thống")
+    st.subheader("Quản trị")
 
-    pw = st.text_input("Mật khẩu",type="password")
+    pw = st.text_input("Mật khẩu", type="password")
 
-    if pw==ADMIN_PASSWORD:
+    if pw == ADMIN_PASSWORD:
 
-        df_gv=load(GV_SHEET)
-        df_sv=load(SV_SHEET)
+        df_gv = load(GV_SHEET)
+        df_sv = load(SV_SHEET)
 
-        st.write("Thống kê giảng viên")
+        st.write("Giảng viên")
         if not df_gv.empty:
             st.line_chart(df_gv.groupby("Ngày").size())
 
-        st.write("Thống kê sinh viên")
+        st.write("Sinh viên")
         if not df_sv.empty:
             st.line_chart(df_sv.groupby("Ngày").size())
 
-        st.dataframe(df_gv)
-
     st.markdown("</div>", unsafe_allow_html=True)
-
-st.markdown("</div>", unsafe_allow_html=True)
 
 # ================= FOOTER =================
 st.markdown("""
-<div class="footer">
-ĐẠI HỌC Y DƯỢC TP.HCM - 217 Hồng Bàng
-</div>
+<hr>
+<p style='text-align:center;font-size:13px'>
+Đại học Y Dược TP.HCM - 217 Hồng Bàng
+</p>
 """, unsafe_allow_html=True)
