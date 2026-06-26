@@ -33,7 +33,7 @@ SV_SHEET_KEY = st.secrets["SV_SHEET"]
 
 # Tên sheet danh sách gốc (Cơ sở dữ liệu danh sách lớp)
 STAFF_SHEET_NAME = st.secrets.get("STAFF_SHEET_NAME", "NhanSu") 
-STUDENT_SHEET_NAME = "D26A"                                     # Đã cập nhật cố định lớp D26A của thầy
+STUDENT_SHEET_NAME = "D26A"                                     # Tên lớp Sinh viên mới của thầy
 LOG_SHEET_NAME = st.secrets.get("LOG_SHEET_NAME", "Log")
 
 VN_TZ = datetime.timezone(datetime.timedelta(hours=7))
@@ -166,7 +166,7 @@ def verify_gps_location(campus_code):
         return False
     return True
 
-# ===================== TRA CỨU TÀI KHOẢN TỪ DANH SÁCH GỐC =====================
+# ===================== TRA CỨU TÀI KHOẢN TỪ DANH SÁCH GỐC (BẪY LỖI AN TOÀN) =====================
 def find_user_by_code(user_type, sheet_key, code_input):
     target_sheet = STAFF_SHEET_NAME if user_type == "GV" else STUDENT_SHEET_NAME
     ws = get_ws_by_title(sheet_key, target_sheet)
@@ -175,10 +175,11 @@ def find_user_by_code(user_type, sheet_key, code_input):
     headers = values[0]
     hn = [norm_header(h) for h in headers]
     
+    # Sử dụng khối kiểm tra an toàn chống lỗi KeyError tiêu đề cột
     msgv_i = hn.index("msgv") if "msgv" in hn else (hn.index("mssv") if "mssv" in hn else 0)
     name_i = hn.index("hovaten") if "hovaten" in hn else 1
-    unit_i = hn.index("donvi") if "donvi" in hn else 2
-    dept_i = hn.index("bomon") if "bomon" in hn else 3
+    unit_i = hn.index("donvi") if "donvi" in hn else -1
+    dept_i = hn.index("bomon") if "bomon" in hn else -1
     
     target = norm_digits(code_input)
     matches = []
@@ -189,8 +190,8 @@ def find_user_by_code(user_type, sheet_key, code_input):
             matches.append({
                 "MÃ": raw_digits,
                 "Họ và tên": row[name_i] if name_i < len(row) else "",
-                "Đơn vị": row[unit_i] if unit_i < len(row) else "",
-                "Bộ môn": row[dept_i] if dept_i < len(row) else "",
+                "Đơn vị": row[unit_i] if (unit_i != -1 and unit_i < len(row)) else ("Khoa Khoa học cơ bản" if user_type == "SV" else "Chưa rõ"),
+                "Bộ môn": row[dept_i] if (dept_i != -1 and dept_i < len(row)) else (f"Lớp {STUDENT_SHEET_NAME}" if user_type == "SV" else "Chưa rõ"),
             })
     if len(matches) == 1: return matches[0]
     if len(matches) > 1: return {"ambiguous": True, "matches": matches}
@@ -269,6 +270,9 @@ def render_attendance_flow(user_type, sheet_key):
         st.success(f"🎉 Điểm danh thành công! {user_type}: {user_info['Họ và tên']} ({user_code_full})")
 
 # ===================== GIAO DIỆN QUẢN TRỊ TRUNG TÂM ADMIN FULL TÍNH NĂNG =====================
+def get_base_url():
+    return st.secrets.get("WRAPPER_URL") or st.secrets.get("APP_BASE_URL") or "https://giangvien.streamlit.app"
+
 def get_admin_pw(): return st.secrets.get("ADMIN_PASSWORD", "admin")
 def admin_unlocked(): return bool(st.session_state.get("admin_unlocked"))
 
@@ -339,29 +343,6 @@ def build_violation_report(summary):
         if not safe_str(r.get("Vào ca")): rows.append({**row, "Loại vi phạm": "Không vào ca"})
         if safe_str(r.get("Vào ca")) and not safe_str(r.get("Ra ca")): rows.append({**row, "Loại vi phạm": "Không ra ca"})
         if late > LATE_THRESHOLD_MINUTES: rows.append({**row, "Loại vi phạm": f"Vào ca muộn > {LATE_THRESHOLD_MINUTES} phút"})
-    return pd.DataFrame(rows)
-
-def summarize_hours(records):
-    if not records: return pd.DataFrame()
-    df = pd.DataFrame(records)
-    for c in LOG_COLUMNS:
-        if c not in df.columns: df[c] = ""
-    rows = []
-    for keys, g in df.groupby(["Ngày", "MSGV", "Họ và tên", "Đơn vị", "Bộ môn", "Ca"], dropna=False):
-        ngay, msgv, hoten, donvi, bomon, ca = keys
-        ins = g[g["IN/OUT"] == "IN"]["Giờ"].tolist()
-        outs = g[g["IN/OUT"] == "OUT"]["Giờ"].tolist()
-        vao, ra = min(ins) if ins else "", max(outs) if outs else ""
-        hours = ""
-        if vao and ra:
-            try:
-                sec = (datetime.datetime.strptime(ra, "%H:%M:%S") - datetime.datetime.strptime(vao, "%H:%M:%S")).total_seconds()
-                hours = round(sec / 3600, 2) if sec >= 0 else ""
-            except Exception: pass
-        rows.append({
-            "Ngày": ngay, "MSGV": msgv, "Họ và tên": hoten, "Đơn vị": donvi, "Bộ môn": bomon, "Ca": ca,
-            "Vào ca": vao, "Ra ca": ra, "Giờ có mặt": hours, "Cơ sở": ", ".join(sorted(set(g["CS"].astype(str)))),
-        })
     return pd.DataFrame(rows)
 
 def render_admin_dashboard_flow():
@@ -471,7 +452,7 @@ elif st.query_params.get("sv") == "1":
 else:
     render_admin_dashboard_flow()
 
-# ===================== FOOTER CHÂN TRANG BẢN QUYỀN ĐỒNG BỘ =====================
+# ===================== FOOTER CHÂN TRANG BẢN QUYỀN ĐỒNG BỘ CỦA THẦY =====================
 st.markdown(
     """
     <style>
