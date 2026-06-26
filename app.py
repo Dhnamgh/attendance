@@ -58,7 +58,8 @@ LOCATIONS = {
 }
 LOCATION_BY_CODE = {v["code"]: k for k, v in LOCATIONS.items()}
 
-st.set_page_config(page_title="Hệ thống điểm danh tích hợp", layout="wide", initial_sidebar_state="pinned")
+# Thay thế bằng dòng chuẩn này:
+st.set_page_config(page_title="Hệ thống điểm danh tích hợp", layout="wide", initial_sidebar_state="expanded")
 
 # ===================== CSS ĐỒNG BỘ GIAO DIỆN CHỮ TO RÕ =====================
 st.html(
