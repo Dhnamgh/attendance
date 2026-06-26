@@ -1,5 +1,5 @@
 import streamlit as st
-import datetime, time
+import datetime
 import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
@@ -10,7 +10,6 @@ try:
 except:
     streamlit_geolocation = None
 
-# ================= CONFIG =================
 st.set_page_config(layout="wide")
 
 GV_SHEET = st.secrets["GV_SHEET"]
@@ -23,14 +22,11 @@ RADIUS = st.secrets.get("RADIUS", 100)
 
 VN_TZ = datetime.timezone(datetime.timedelta(hours=7))
 
-# ================= CSS =================
+# ================= UI =================
 st.markdown("""
 <style>
-
-.block-container {
-    padding:0 !important;
-}
-header[data-testid="stHeader"] {display:none;}
+.block-container {padding:0!important;}
+header[data-testid="stHeader"]{display:none}
 
 /* HEADER */
 .header-bar {
@@ -41,36 +37,48 @@ header[data-testid="stHeader"] {display:none;}
     justify-content:center;
     position:relative;
 }
-.logo {
+.header-title {
+    color:white;
+    font-size:28px;
+    font-weight:600;
+}
+.header-logo {
     position:absolute;
     left:20px;
-    height:45px;
-}
-.title {
-    color:white;
-    font-size:26px;
-    font-weight:600;
+    height:55px;
 }
 
 /* SIDEBAR */
 section[data-testid="stSidebar"] {
-    background:#2c6b95;
+    background:#2c6b95 !important;
+    width:230px;
 }
 section[data-testid="stSidebar"] * {
     color:white;
+    font-size:16px !important;
+    font-weight:500;
 }
 
 /* CONTENT */
-.container {
-    max-width:1100px;
-    margin:auto;
-    padding:25px;
+.main-container {
+    margin-left:40px;
+    margin-right:40px;
 }
 .card {
+    margin-top:20px;
     background:white;
-    padding:20px;
-    border-radius:8px;
-    box-shadow:0 2px 8px rgba(0,0,0,0.1);
+    padding:25px;
+    border-radius:6px;
+}
+
+/* INPUT */
+input, div[data-baseweb="select"] {
+    font-size:15px !important;
+}
+
+/* BUTTON */
+button[kind="secondary"] {
+    min-width:120px;
 }
 
 /* FOOTER */
@@ -80,15 +88,13 @@ section[data-testid="stSidebar"] * {
     padding:25px;
     margin-top:40px;
 }
-
 </style>
 """, unsafe_allow_html=True)
 
-# ================= HEADER =================
 st.markdown("""
 <div class="header-bar">
-    <img src="h.png" class="logo">
-    <div class="title">HỆ THỐNG ĐIỂM DANH</div>
+    <img src="h.png" class="header-logo">
+    <div class="header-title">HỆ THỐNG ĐIỂM DANH</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -145,64 +151,42 @@ LESSON = {
     11:("16:35","17:25"),
 }
 
-def lesson_info(shift, f, t):
-    arr = [x for x in (range(1,6) if shift=="Sáng" else [7,8,9,10,11]) if f<=x<=t]
+def lesson_calc(shift,f,t):
+    allowed = range(1,6) if shift=="Sáng" else [7,8,9,10,11]
+    arr=[x for x in allowed if f<=x<=t]
     return arr, LESSON[arr[0]][0], LESSON[arr[-1]][1]
 
-def late(start):
-    h,m = map(int,start.split(":"))
-    return max(0, now().hour*60+now().minute - (h*60+m))
-
-def req_minutes(n):
-    return n*50 + (15 if n>3 else 0)
-
-# ================= UI =================
+# ================= MENU =================
 menu = st.sidebar.radio("",["Giảng viên","Sinh viên","Quản trị"])
 
-st.markdown("<div class='container'>", unsafe_allow_html=True)
+st.markdown("<div class='main-container'>", unsafe_allow_html=True)
 
-# ================= GV =================
+# ================= GIẢNG VIÊN =================
 if menu=="Giảng viên":
     st.markdown("<div class='card'>", unsafe_allow_html=True)
 
     st.subheader("Điểm danh giảng viên")
 
-    msgv = st.text_input("MSGV", key="gv_msgv")
-    name = st.text_input("Họ tên", key="gv_name")
-    shift = st.selectbox("Ca",["Sáng","Chiều"])
+    msgv = st.text_input("MSGV")
+    name = st.text_input("Họ tên")
+    ca = st.selectbox("Ca",["Sáng","Chiều"])
     f = st.number_input("Tiết bắt đầu",1,11,1)
     t = st.number_input("Tiết kết thúc",1,11,3)
 
-    arr,start,end = lesson_info(shift,f,t)
+    arr,start,end = lesson_calc(ca,f,t)
     st.info(f"{arr} | {start} - {end}")
 
     if st.button("Check-in"):
-        if not check_location():
-            st.error("Sai vị trí")
-        else:
-            append(GV_SHEET,[
-                today(),msgv,name,shift,
-                f,t,len(arr),start,end,
-                late(start),"IN",now().strftime("%H:%M:%S")
-            ])
-            st.success("Đã check-in")
+        append(GV_SHEET,[today(),msgv,name,ca,f,t,len(arr),start,end,"IN",now().strftime("%H:%M:%S")])
+        st.success("Thành công")
 
     if st.button("Check-out"):
-        df = load(GV_SHEET)
-        last = df[(df["MSGV"]==msgv)&(df["IN/OUT"]=="IN")]
-        if not last.empty:
-            last = last.iloc[-1]
-            if (now()-datetime.datetime.strptime(last["Giờ"],"%H:%M:%S").replace(
-                year=now().year,month=now().month,day=now().day
-            )).total_seconds()/60 >= req_minutes(int(last["Số tiết"])):
-                append(GV_SHEET,[today(),msgv,name,"","","","","","","","OUT",now().strftime("%H:%M:%S")])
-                st.success("Ra ca")
-            else:
-                st.error("Chưa đủ thời gian")
+        append(GV_SHEET,[today(),msgv,name,ca,"","","","","","OUT",now().strftime("%H:%M:%S")])
+        st.success("Thành công")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ================= SV =================
+# ================= SINH VIÊN =================
 elif menu=="Sinh viên":
     st.markdown("<div class='card'>", unsafe_allow_html=True)
 
@@ -210,18 +194,24 @@ elif menu=="Sinh viên":
 
     mssv = st.text_input("MSSV")
     name = st.text_input("Họ tên")
+    ca = st.selectbox("Ca",["Sáng","Chiều"])
+    f = st.number_input("Tiết bắt đầu",1,11,1)
+    t = st.number_input("Tiết kết thúc",1,11,3)
+
+    arr,start,end = lesson_calc(ca,f,t)
+    st.info(f"{arr} | {start} - {end}")
 
     if st.button("Check-in SV"):
-        append(SV_SHEET,[today(),mssv,name,"IN",now().strftime("%H:%M:%S")])
-        st.success("Đã vào")
+        append(SV_SHEET,[today(),mssv,name,ca,f,t,len(arr),start,end,"IN",now().strftime("%H:%M:%S")])
+        st.success("Thành công")
 
     if st.button("Check-out SV"):
-        append(SV_SHEET,[today(),mssv,name,"OUT",now().strftime("%H:%M:%S")])
-        st.success("Đã ra")
+        append(SV_SHEET,[today(),mssv,name,ca,"","","","","","OUT",now().strftime("%H:%M:%S")])
+        st.success("Thành công")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ================= ADMIN =================
+# ================= QUẢN TRỊ =================
 else:
     st.markdown("<div class='card'>", unsafe_allow_html=True)
 
@@ -234,20 +224,15 @@ else:
         df_gv = load(GV_SHEET)
         df_sv = load(SV_SHEET)
 
-        st.write("Thống kê tổng")
-        col1,col2=st.columns(2)
-        col1.metric("GV",len(df_gv))
-        col2.metric("SV",len(df_sv))
-
+        st.write("Thống kê GV")
         if not df_gv.empty:
-            st.write("GV theo ngày")
             st.line_chart(df_gv.groupby("Ngày").size())
+            st.dataframe(df_gv)
 
+        st.write("Thống kê SV")
         if not df_sv.empty:
-            st.write("SV theo ngày")
             st.line_chart(df_sv.groupby("Ngày").size())
-
-        st.dataframe(df_gv)
+            st.dataframe(df_sv)
 
     st.markdown("</div>", unsafe_allow_html=True)
 
