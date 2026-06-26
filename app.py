@@ -7,6 +7,7 @@ import base64
 import urllib.parse
 import unicodedata
 import datetime
+from difflib import get_close_matches
 
 import streamlit as st
 import gspread
@@ -27,14 +28,22 @@ except Exception:
     geodesic = None
 
 
-# ===================== CẤU HÌNH HỆ THỐNG ĐỒNG BỘ =====================
+# ===================== CẤU HÌNH HỆ THỐNG TÍCH HỢP =====================
+# Cấu hình Phân hệ Giảng viên (GV)
 GV_SHEET_KEY = st.secrets["GV_SHEET"]
-SV_SHEET_KEY = st.secrets["SV_SHEET"]
 STAFF_SHEET_NAME = st.secrets.get("STAFF_SHEET_NAME", "NhanSu")
 LOG_SHEET_NAME = st.secrets.get("LOG_SHEET_NAME", "Log")
+
+# Cấu hình Phân hệ Sinh viên (SV) - Giữ nguyên từ mainsv.py
+SV_SHEET_KEY = st.secrets["SV_SHEET"]
+WORKSHEET_NAME = "D25C"                                     
+QR_SLOT_SECONDS = 30          
+UNLOCK_TTL = 120              
+MSSV_PREFIX = st.secrets.get("SESSION_PREFIX", "51125")  
+
 VN_TZ = datetime.timezone(datetime.timedelta(hours=7))
 
-# Quy định khung giờ tiết học dùng chung (1 tiết = 50 phút, giải lao 15 phút sau tiết 3)
+# Quy định khung giờ tiết dạy Giảng viên
 LESSON_MINUTES = int(st.secrets.get("LESSON_MINUTES", 50))
 BREAK_AFTER_LESSONS = int(st.secrets.get("BREAK_AFTER_LESSONS", 3))
 BREAK_MINUTES = int(st.secrets.get("BREAK_MINUTES", 15))
@@ -58,10 +67,9 @@ LOCATIONS = {
 }
 LOCATION_BY_CODE = {v["code"]: k for k, v in LOCATIONS.items()}
 
-# Thay thế bằng dòng chuẩn này:
 st.set_page_config(page_title="Hệ thống điểm danh tích hợp", layout="wide", initial_sidebar_state="expanded")
 
-# ===================== CSS ĐỒNG BỘ GIAO DIỆN CHỮ TO RÕ =====================
+# ===================== CSS ĐỒNG BỘ GIAO DIỆN CHỮ TO RÕ CỦA THẦY =====================
 st.html(
     """
     <style>
@@ -77,7 +85,7 @@ st.html(
     """
 )
 
-# ===================== TIỆN ÍCH CHUNG =====================
+# ===================== TIỆN ÍCH LOGIC TỪ MAINSV & APP GỐC =====================
 def now_vn(): return datetime.datetime.now(VN_TZ)
 def today_str(): return now_vn().strftime("%d/%m/%Y")
 def timestamp_str(): return now_vn().strftime("%Y-%m-%d %H:%M:%S")
@@ -120,31 +128,56 @@ def get_ws_by_title(sheet_key, title, is_log=False):
         return _google_api_retry(lambda: ss.add_worksheet(title=title, rows=5000, cols=16))
     return _google_api_retry(lambda: ss.sheet1)
 
-def ensure_header(ws, headers):
-    current = _google_api_retry(lambda: ws.row_values(1))
-    if not current: _google_api_retry(lambda: ws.update("A1", [headers]))
+# ===================== TOKENS QR ĐỘNG (30S THEO MAINSV.PY) =====================
+def current_slot(step=QR_SLOT_SECONDS): return int(time.time() // step)
+def token_valid(t_str: str, step=QR_SLOT_SECONDS) -> bool:
+    if not t_str or not str(t_str).isdigit(): return False
+    return abs(int(t_str) - current_slot(step=step)) <= 1
 
-# ===================== LOGIC ĐIỂM DANH DÙNG CHUNG GẮN VỚI GPS VÀ TIẾT HỌC =====================
-def find_user_by_code(sheet_key, code_input):
-    ws = get_ws_by_title(sheet_key, STAFF_SHEET_NAME)
+# ===================== VỊ TRÍ GPS DÙNG CHUNG CẢ GV VÀ SV =====================
+def verify_gps_location(campus_code):
+    campus_name = LOCATION_BY_CODE.get(campus_code, "Cơ sở 1: 217 Hồng Bàng")
+    campus = LOCATIONS[campus_name]
+    if streamlit_geolocation is None or geodesic is None:
+        st.error("Ứng dụng thiếu thư viện xác thực GPS.")
+        return False
+        
+    loc = streamlit_geolocation()
+    if not loc:
+        st.warning("📡 Đang quét tọa độ GPS vệ tinh... Vui lòng đồng ý cấp quyền vị trí cho trình duyệt.")
+        return False
+        
+    lat, lon = loc.get("latitude"), loc.get("longitude")
+    if lat is None or lon is None:
+        st.warning("Không nhận được phản hồi GPS từ thiết bị.")
+        return False
+        
+    distance = geodesic((float(lat), float(lon)), (campus["lat"], campus["lon"])).meters
+    if distance > campus["radius"]:
+        st.error(f"❌ Ngoài bán kính cho phép! Khoảng cách hiện tại của bạn: {round(distance,1)}m (> {campus['radius']}m tại {campus_name})")
+        return False
+    return True
+
+# ===================== TRA CỨU GIẢNG VIÊN CƠ SỞ =====================
+def find_staff_by_msgv(msgv_input):
+    ws = get_ws_by_title(GV_SHEET_KEY, STAFF_SHEET_NAME)
     values = _google_api_retry(lambda: ws.get_all_values())
     if not values or len(values) < 2: return None
     headers = values[0]
     hn = [norm_header(h) for h in headers]
-    
     msgv_i = hn.index("msgv") if "msgv" in hn else 0
     name_i = hn.index("hovaten") if "hovaten" in hn else 1
     unit_i = hn.index("donvi") if "donvi" in hn else 2
     dept_i = hn.index("bomon") if "bomon" in hn else 3
     
-    target = norm_digits(code_input)
+    target = norm_digits(msgv_input)
     matches = []
     for row in values[1:]:
         raw_digits = norm_digits(row[msgv_i] if msgv_i < len(row) else "")
         if not raw_digits: continue
         if (len(target) == 4 and raw_digits.endswith(target)) or raw_digits == target:
             matches.append({
-                "MÃ": raw_digits.zfill(8) if len(raw_digits) <= 8 else raw_digits,
+                "MSGV": raw_digits.zfill(8) if len(raw_digits) <= 8 else raw_digits,
                 "Họ và tên": row[name_i] if name_i < len(row) else "",
                 "Đơn vị": row[unit_i] if unit_i < len(row) else "",
                 "Bộ môn": row[dept_i] if dept_i < len(row) else "",
@@ -165,167 +198,233 @@ def lesson_range_info(shift, lesson_from, lesson_to):
         "start_time": LESSON_SCHEDULE[selected[0]][0], "end_time": LESSON_SCHEDULE[selected[-1]][1]
     }
 
-def render_location_check(campus_code):
-    campus_name = LOCATION_BY_CODE.get(campus_code, "Cơ sở 1: 217 Hồng Bàng")
-    campus = LOCATIONS[campus_name]
-    st.info(f"📍 Vị trí yêu cầu: {campus_name}")
-    if streamlit_geolocation is None or geodesic is None:
-        st.error("Ứng dụng thiếu thư viện GPS.")
-        st.stop()
-    loc = streamlit_geolocation()
-    if not loc:
-        st.warning("Đang kết nối vệ tinh GPS... Vui lòng đồng ý cấp quyền truy cập vị trí trên trình duyệt.")
-        st.stop()
-    lat, lon = loc.get("latitude"), loc.get("longitude")
-    if lat is None or lon is None:
-        st.warning("Thiết bị chưa phản hồi tọa độ. Vui lòng thử lại.")
-        st.stop()
-    distance = geodesic((float(lat), float(lon)), (campus["lat"], campus["lon"])).meters
-    if distance > campus["radius"]:
-        st.error(f"❌ Ngoài bán kính cho phép! Khoảng cách hiện tại: {round(distance,1)}m (> {campus['radius']}m)")
-        st.stop()
-    st.success("✅ Vị trí hợp lệ. Đã xác thực trong phạm vi trường học.")
-
-# ===================== LUỒNG ĐIỂM DANH ĐỒNG BỘ DÙNG CHUNG CHO CẢ GV VÀ SV =====================
-def render_attendance_flow(user_type, sheet_key):
-    qp = {k: v[0] if isinstance(v, list) else v for k, v in st.experimental_get_query_params().items()}
+# ===================== MÀN HÌNH 1: GIẢNG VIÊN ĐIỂM DANH (?gv=1) =====================
+def render_gv_attendance_flow():
+    qp = st.query_params
     campus_code = qp.get("coso", "CS1")
     
-    st.title(f"Hệ thống điểm danh {user_type}")
+    st.title("👨‍🏫 Điểm danh Giảng viên")
     if now_vn().date().weekday() == 6:
-        st.error("Hệ thống đóng cửa vào ngày Chủ Nhật.")
+        st.error("Chủ nhật không hỗ trợ điểm danh đứng lớp.")
         st.stop()
         
-    render_location_check(campus_code)
-    shift = infer_shift()
-    st.info(f"Khung buổi hiện tại: Ca {shift}")
+    gps_ok = verify_gps_location(campus_code)
+    if not gps_ok: st.stop()
     
-    action_label = st.radio("Chọn nghiệp vụ điểm danh", ["Vào ca (Check-in)", "Ra ca (Check-out)"], horizontal=True, key=f"act_{user_type}")
-    action = "IN" if "Vào" in action_label else "OUT"
+    shift = infer_shift()
+    st.info(f"Ca hiện tại: Buổi {shift}")
+    
+    action_label = st.radio("Chọn hình thức", ["Vào ca", "Ra ca"], horizontal=True)
+    action = "IN" if action_label == "Vào ca" else "OUT"
     
     allowed = MORNING_LESSONS if shift == "Sáng" else AFTERNOON_LESSONS
     c1, c2 = st.columns(2)
-    with c1: tiet_tu = st.number_input("Tiết bắt đầu", min_value=min(allowed), max_value=max(allowed), value=min(allowed), key=f"f_{user_type}")
-    with c2: tiet_den = st.number_input("Tiết kết thúc", min_value=min(allowed), max_value=max(allowed), value=max(allowed), key=f"t_{user_type}")
+    with c1: tiet_tu = st.number_input("Từ tiết", min_value=min(allowed), max_value=max(allowed), value=min(allowed))
+    with c2: tiet_den = st.number_input("Đến tiết", min_value=min(allowed), max_value=max(allowed), value=max(allowed))
     
     info_tiet = lesson_range_info(shift, tiet_tu, tiet_den)
-    st.caption(f"Khung thời gian chuẩn: Tiết {info_tiet['lesson_from']} -> {info_tiet['lesson_to']} ({info_tiet['start_time']} - {info_tiet['end_time']}) | Tổng: {info_tiet['num_lessons']} tiết")
+    st.caption(f"Khung giờ chuẩn: Tiết {info_tiet['lesson_from']} - {info_tiet['lesson_to']} ({info_tiet['start_time']} - {info_tiet['end_time']})")
     
-    label_text = f"Nhập 4 số cuối của MSGV" if user_type == "GV" else f"Nhập 4 số cuối của MSSV"
-    code_suffix = st.text_input(label_text, max_chars=4, placeholder="Ví dụ: 1234", key=f"code_{user_type}")
+    msgv_suffix = st.text_input("Nhập 4 số cuối MSGV", max_chars=4, placeholder="Ví dụ: 1234")
     
-    if st.button("Xác nhận ghi nhận lên hệ thống", type="primary", use_container_width=True, key=f"btn_{user_type}"):
-        if len(code_suffix.strip()) != 4 or not code_suffix.isdigit():
-            st.warning("Yêu cầu nhập chính xác 4 chữ số cuối mã số định danh.")
+    if st.button("Xác nhận điểm danh Giảng viên", type="primary", use_container_width=True):
+        if len(msgv_suffix.strip()) != 4 or not msgv_suffix.isdigit():
+            st.warning("Vui lòng nhập đúng 4 chữ số cuối MSGV.")
             st.stop()
             
-        user_info = find_user_by_code(sheet_key, code_suffix)
-        if not user_info: st.error(f"Không tìm thấy thông tin {user_type} tương ứng."); st.stop()
-        if user_info.get("ambiguous"): st.error("Mã số cuối bị trùng lặp trên hệ thống danh sách, vui lòng báo Giáo vụ."); st.stop()
+        staff = find_staff_by_msgv(msgv_suffix)
+        if not staff: st.error("Không tìm thấy Giảng viên trong danh sách."); st.stop()
+        if staff.get("ambiguous"): st.error("Bị trùng 4 số cuối, hãy liên hệ Admin."); st.stop()
         
-        user_code_full = user_info["MÃ"]
-        lw = get_ws_by_title(sheet_key, LOG_SHEET_NAME, is_log=True)
-        ensure_header(lw, LOG_COLUMNS)
+        msgv_full = staff["MSGV"]
+        lw = get_ws_by_title(GV_SHEET_KEY, LOG_SHEET_NAME, is_log=True)
         
-        # Thuật toán tính số phút đi muộn so với mốc phân công
         start_t = datetime.datetime.strptime(info_tiet["start_time"], "%H:%M").time()
         start_dt = datetime.datetime.combine(now_vn().date(), start_t, tzinfo=VN_TZ)
         late_min = max(0, int((now_vn() - start_dt).total_seconds() // 60)) if action == "IN" else 0
         
-        # Thực hiện đồng bộ append bản ghi
         _google_api_retry(lambda: lw.append_row([
-            today_str(), user_code_full, user_info["Họ và tên"], user_info["Đơn vị"], user_info["Bộ môn"],
+            today_str(), msgv_full, staff["Họ và tên"], staff["Đơn vị"], staff["Bộ môn"],
             campus_code, shift, info_tiet["lesson_from"], info_tiet["lesson_to"], info_tiet["num_lessons"],
             info_tiet["start_time"], info_tiet["end_time"], late_min if action == "IN" else "", action,
             now_vn().strftime("%H:%M:%S"), timestamp_str()
         ], value_input_option="USER_ENTERED"))
         
-        st.success(f"🎉 Điểm danh {action_label} THÀNH CÔNG! {user_type}: {user_info['Họ và tên']} ({user_code_full})")
+        st.success(f"🎉 Ghi nhận {action_label} thành công cho Giảng viên: {staff['Họ và tên']} ({msgv_full})")
 
-# ===================== MÀN HÌNH QUẢN TRỊ TRUNG TÂM TÍCH HỢP CHUNG =====================
+# ===================== MÀN HÌNH 2: SINH VIÊN ĐIỂM DANH QR ĐỘNG + GPS (?sv=1) =====================
+def find_or_create_time_col(sheet, buoi_col: int, buoi_header: str) -> int:
+    headers = _google_api_retry(lambda: sheet.row_values(1))
+    nxt = buoi_col + 1
+    if nxt <= len(headers) and "thời gian" in (headers[nxt-1] or "").lower(): return nxt
+    _google_api_retry(lambda: sheet.update_cell(1, nxt, f"Thời gian {buoi_header}"))
+    return nxt
+
+def render_sv_attendance_flow():
+    qp = st.query_params
+    buoi_sv = qp.get("buoi", "Buổi 1")
+    token_qr = qp.get("t", "")
+    campus_code = qp.get("coso", "CS1")  # Mặc định lấy cơ sở quét
+    
+    st.title("🎓 Điểm danh Sinh viên")
+    st.info(f"Bạn đang thực hiện điểm danh cho: **{buoi_sv}**")
+    
+    # 1. TÍCH HỢP ĐỊNH VỊ GPS Y HỆT CỦA GV
+    gps_ok = verify_gps_location(campus_code)
+    if not gps_ok: st.stop()
+    
+    lock_key = f"sv_lock_{buoi_sv}"
+    if st.session_state.get(lock_key):
+        st.success("✅ Bạn đã thực hiện điểm danh thành công trên thiết bị này.")
+        st.stop()
+        
+    # 2. KIỂM TRA MÃ TOKEN ĐỘNG 30S ĐỂ CHỐNG GIAN LẬN LINK (Từ mainsv.py)
+    unlock_key = f"session_active_{buoi_sv}"
+    if not st.session_state.get(unlock_key):
+        if not token_valid(token_qr, step=QR_SLOT_SECONDS):
+            st.error("⏳ Mã QR đã hết hạn. Vui lòng quét mã QR mới đang trình chiếu trên bảng lớp học.")
+            st.stop()
+        st.session_state[unlock_key] = time.time()
+    else:
+        if time.time() - st.session_state[unlock_key] > UNLOCK_TTL:
+            st.error("❌ Phiên làm việc quá hạn (120s). Vui lòng quét lại mã QR mới.")
+            st.stop()
+            
+    mssv_suffix = st.text_input("Nhập **4 số cuối** MSSV", max_chars=4, placeholder="VD: 1234")
+    hoten = st.text_input("Nhập đầy đủ Họ và Tên sinh viên (Có dấu)")
+    
+    if mssv_suffix.strip().isdigit():
+        st.caption(f"Mã MSSV hệ thống đối chiếu: **{MSSV_PREFIX}{mssv_suffix.strip().zfill(4)}**")
+        
+    if st.button("✅ Xác nhận điểm danh Sinh viên", type="primary", use_container_width=True):
+        if not mssv_suffix.strip().isdigit() or len(mssv_suffix.strip()) != 4 or not hoten.strip():
+            st.warning("⚠️ Vui lòng điền đầy đủ và chính xác thông tin yêu cầu.")
+            st.stop()
+            
+        full_mssv = f"{MSSV_PREFIX}{mssv_suffix.strip().zfill(4)}"
+        sheet = get_ws_by_title(SV_SHEET_KEY, WORKSHEET_NAME)
+        
+        # Đọc dữ liệu ghi trực tiếp lên danh sách lớp giống app sv cũ
+        records = _google_api_retry(lambda: sheet.get_all_records(default_blank=""))
+        target_row = None
+        for idx, r in enumerate(records, start=2):
+            if norm_digits(r.get("MSSV", "")) == norm_digits(full_mssv):
+                target_row = idx
+                break
+                
+        if not target_row:
+            st.error(f"❌ Không tìm thấy mã sinh viên {full_mssv} trong danh sách lớp {WORKSHEET_NAME}.")
+            st.stop()
+            
+        # So khớp họ tên
+        headers = _google_api_retry(lambda: sheet.row_values(1))
+        hn = [norm_header(h) for h in headers]
+        name_col = (hn.index("hovaten") + 1) if "hovaten" in hn else 2
+        hoten_sheet = sheet.cell(target_row, name_col).value
+        
+        if normalize_name(hoten_sheet or "") != normalize_name(hoten):
+            st.error("❌ Họ tên không khớp với dữ liệu gốc của Mã số sinh viên này.")
+            st.stop()
+            
+        # Tìm cột Buổi học để tích dấu và ghi thời gian thực
+        buoi_col = (hn.index(norm_header(buoi_sv)) + 1) if norm_header(buoi_sv) in hn else 4
+        time_col = find_or_create_time_col(sheet, buoi_col, buoi_sv)
+        
+        # Ghi đè trực tiếp ô dữ liệu như file mainsv.py cũ của thầy
+        _google_api_retry(lambda: sheet.update_cell(target_row, buoi_col, "✅"))
+        _google_api_retry(lambda: sheet.update_cell(target_row, time_col, timestamp_str()))
+        
+        st.session_state[lock_key] = True
+        st.success(f"🎉 Điểm danh thành công! Sinh viên: {hoten_sheet} ({full_mssv})")
+        st.rerun()
+
+# ===================== MÀN HÌNH 3: TRANG QUẢN TRỊ TRUNG TÂM =====================
 def get_base_url():
     return st.secrets.get("WRAPPER_URL") or st.secrets.get("APP_BASE_URL") or "https://giangvien.streamlit.app"
 
 def render_admin_dashboard_flow():
     with st.sidebar:
-        st.header("🔒 Đăng nhập hệ thống")
+        st.header("🔒 Quản trị")
         if st.session_state.get("admin_logged"):
-            st.success("Hệ thống đã mở khóa")
-            if st.button("Đăng xuất khỏi Admin"): st.session_state.clear(); st.rerun()
+            st.success("Hệ thống đã kết nối")
+            if st.button("Đăng xuất Admin"): st.session_state.clear(); st.rerun()
         else:
-            pw = st.text_input("Mật khẩu quản trị", type="password")
-            if st.button("Xác thực Đăng nhập", type="primary", use_container_width=True):
+            pw = st.text_input("Mật khẩu hệ thống", type="password")
+            if st.button("Đăng nhập Hệ thống", type="primary", use_container_width=True):
                 if pw == st.secrets.get("ADMIN_PASSWORD", "admin"):
                     st.session_state["admin_logged"] = True
                     st.rerun()
-                else: st.error("Mật khẩu không hợp lệ.")
+                else: st.error("Mật khẩu không chính xác.")
                 
     if not st.session_state.get("admin_logged"):
-        st.error("Vui lòng nhập mật khẩu quản trị ở thanh công cụ bên trái để truy cập dữ liệu tổng hợp.")
+        st.error("🔒 Vui lòng mở rộng thanh công cụ bên trái và đăng nhập mật khẩu quản trị để tiếp tục.")
         st.stop()
         
     with st.sidebar:
         st.markdown("---")
-        st.markdown("**Báo cáo dữ liệu động**")
-        # Điểm mấu chốt: Cho phép Admin chọn đối tượng cần cấu hình hoặc xem thống kê
-        target_view = st.selectbox("Chọn phân hệ đối tượng:", ["Giảng viên", "Sinh viên"])
-        active_sheet_key = GV_SHEET_KEY if target_view == "Giảng viên" else SV_SHEET_KEY
-        param_flag = "gv=1" if target_view == "Giảng viên" else "sv=1"
+        menu = st.radio("Chức năng quản lý:", ["👨‍🏫 Giảng viên (QR cố định)", "🎓 Sinh viên (QR động 30s)", "📊 Xem dữ liệu bảng điểm"])
         
-        menu = st.radio("Mục quản lý:", ["Tạo QR cố định điểm danh", "Tra cứu thông tin", "Báo cáo thống kê tổng hợp"])
-        
-    # Chức năng 1: Tạo QR tĩnh theo Cơ sở cho đối tượng đang chọn
-    if menu == "Tạo QR cố định điểm danh":
-        st.subheader(f"Tạo mã QR phân hệ: {target_view}")
-        campus_name = st.selectbox("Chọn vị trí cơ sở trường học", list(LOCATIONS.keys()))
+    # --- CHỨC NĂNG 1: TẠO QR CỐ ĐỊNH CHO GIẢNG VIÊN ---
+    if menu == "👨‍🏫 Giảng viên (QR cố định)":
+        st.subheader("Tạo mã QR cố định theo cơ sở cho Giảng viên")
+        campus_name = st.selectbox("Chọn cơ sở trường học", list(LOCATIONS.keys()))
         campus_code = LOCATIONS[campus_name]["code"]
         
-        if st.button("Khởi tạo mã QR Code", type="primary", use_container_width=True):
-            qr_data = f"{get_base_url()}/?{param_flag}&coso={urllib.parse.quote(campus_code)}"
+        if st.button("Khởi tạo mã QR GV", type="primary", use_container_width=True):
+            qr_data = f"{get_base_url()}/?gv=1&coso={urllib.parse.quote(campus_code)}"
             qr = qrcode.make(qr_data)
             buf = io.BytesIO(); qr.save(buf, format="PNG"); buf.seek(0)
-            st.image(Image.open(buf), caption=f"Mã QR cố định ({target_view}) tại {campus_code}", width=360)
+            st.image(Image.open(buf), caption=f"Mã QR cố định Giảng viên tại {campus_code}", width=360)
             st.code(qr_data)
             
-    # Chức năng 2: Tra cứu thông tin danh sách
-    elif menu == "Tra cứu thông tin":
-        st.subheader(f"Tìm kiếm thông tin dữ liệu {target_view}")
-        q = st.text_input("Nhập mã số (hoặc 4 số cuối) hoặc họ tên cần tra cứu:")
-        if st.button("Thực hiện tìm kiếm", use_container_width=True):
-            ws = get_ws_by_title(active_sheet_key, STAFF_SHEET_NAME)
-            rows = _google_api_retry(lambda: ws.get_all_records(default_blank=""))
-            res = [r for r in rows if q in safe_str(r.get("MSGV")) or norm_search(q) in norm_search(r.get("Họ và tên"))]
-            if res: st.dataframe(pd.DataFrame(res), use_container_width=True)
-            else: st.warning("Không tìm thấy kết quả phù hợp với từ khóa.")
-            
-    # Chức năng 3: Xem báo cáo bảng Log chi tiết
-    elif menu == "Báo cáo thống kê tổng hợp":
-        st.subheader(f"Bảng nhật ký lịch sử điểm danh (Log) - {target_view}")
-        ws = get_ws_by_title(active_sheet_key, LOG_SHEET_NAME, is_log=True)
-        data = _google_api_retry(lambda: ws.get_all_records(default_blank=""))
-        if data:
-            df = pd.DataFrame(data)
-            st.dataframe(df, use_container_width=True)
-            
-            # Vẽ biểu đồ tương tác nhanh số lượt log theo Ca học
-            if "Ca" in df.columns:
-                st.markdown("**Biểu đồ phân bố lượt điểm danh theo ca (Sáng/Chiều):**")
-                chart_df = df.groupby("Ca").size().reset_index(name="Số lượt")
-                chart = alt.Chart(chart_df).mark_bar().encode(x="Ca:N", y="Số lượt:Q", color="Ca:N").properties(height=300)
-                st.altair_chart(chart, use_container_width=True)
+    # --- CHỨC NĂNG 2: TRÌNH CHIẾU QR ĐỘNG 30S CHO SINH VIÊN (Từ mainsv.py gốc) ---
+    elif menu == "🎓 Sinh viên (QR động 30s)":
+        st.subheader(f"📸 Trình chiếu Mã QR Điểm danh Động lớp {WORKSHEET_NAME}")
+        buoi = st.selectbox("Chọn phiên học buổi số mấy", ["Buổi 1", "Buổi 2", "Buổi 3", "Buổi 4", "Buổi 5", "Buổi 6"])
+        campus_name = st.selectbox("Lớp đang học tại cơ sở nào? (Để ép GPS SV)", list(LOCATIONS.keys()))
+        campus_code = LOCATIONS[campus_name]["code"]
+        auto = st.toggle("Tự động xoay vòng Token mã hóa chống gian lận (30 giây)", value=True)
+        
+        if st.button("Bắt đầu trình chiếu QR lớp học", type="primary", use_container_width=True):
+            qr_slot = st.empty()
+            timer_slot = st.empty()
+            while True:
+                slot = current_slot()
+                # Link SV bóc tách kèm biến cơ sở để bắt GPS đồng bộ
+                qr_data = f"{get_base_url()}/?sv=1&buoi={urllib.parse.quote(buoi)}&t={slot}&coso={campus_code}"
+                
+                qr = qrcode.make(qr_data)
+                buf = io.BytesIO(); qr.save(buf, format="PNG"); buf.seek(0)
+                qr_slot.image(Image.open(buf), caption=f"📱 Sinh viên ngồi tại lớp quét mã QR đang chiếu này", width=360)
+                
+                remain = QR_SLOT_SECONDS - (int(time.time()) % QR_SLOT_SECONDS)
+                timer_slot.markdown(f"⏳ **Mã QR tự động đổi sau:** `{remain} giây`  •  **Phiên:** `{buoi}`  •  **Ép định vị:** `{campus_code}`")
+                if not auto: break
+                time.sleep(1)
+                
+    # --- CHỨC NĂNG 3: XEM BẢNG TỔNG HỢP ---
+    elif menu == "📊 Xem dữ liệu bảng điểm":
+        target_view = st.radio("Chọn tập dữ liệu hiển thị:", ["Nhật ký Log Giảng viên", "Bảng điểm danh Sinh viên lớp D25C"], horizontal=True)
+        if "Giảng viên" in target_view:
+            ws = get_ws_by_title(GV_SHEET_KEY, LOG_SHEET_NAME, is_log=True)
+            data = _google_api_retry(lambda: ws.get_all_records(default_blank=""))
+            if data: st.dataframe(pd.DataFrame(data), use_container_width=True)
+            else: st.info("Nhật ký điểm danh GV trống.")
         else:
-            st.info(f"Hệ thống file dữ liệu Log của phân hệ {target_view} hiện tại trống.")
+            ws = get_ws_by_title(SV_SHEET_KEY, WORKSHEET_NAME)
+            data = _google_api_retry(lambda: ws.get_all_records(default_blank=""))
+            if data: st.dataframe(pd.DataFrame(data), use_container_width=True)
+            else: st.info("Bảng dữ liệu lớp học SV trống.")
 
-# ===================== ĐIỀU HƯỚNG VÀ PHÂN LUỒNG URL CHÍNH (ROUTING) =====================
-# Thay thế bằng đoạn code chuẩn hóa mới này:
+# ===================== ĐIỀU HƯỚNG ROUTING CHÍNH (STREAMLIT MỚI) =====================
 if "gv" in st.query_params and st.query_params["gv"] == "1":
-    render_attendance_flow("GV", GV_SHEET_KEY)
+    render_gv_attendance_flow()
 elif "sv" in st.query_params and st.query_params["sv"] == "1":
-    render_attendance_flow("SV", SV_SHEET_KEY)
+    render_sv_attendance_flow()
 else:
     render_admin_dashboard_flow()
 
-# ===================== CHÂN TRANG BẢN QUYỀN ĐỒNG BỘ =====================
+# ===================== CHÂN TRANG BẢN QUYỀN ĐỒNG BỘ CỦA THẦY =====================
 st.markdown(
     """
     <style>
