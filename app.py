@@ -33,7 +33,7 @@ SV_SHEET_KEY = st.secrets["SV_SHEET"]
 
 # Tên sheet danh sách gốc (Cơ sở dữ liệu danh sách lớp)
 STAFF_SHEET_NAME = st.secrets.get("STAFF_SHEET_NAME", "NhanSu") 
-STUDENT_SHEET_NAME = "D26A"                                     # Tên lớp Sinh viên mới của thầy
+STUDENT_SHEET_NAME = "D26A"                                     # Đã ghim cố định lớp D26A của thầy
 LOG_SHEET_NAME = st.secrets.get("LOG_SHEET_NAME", "Log")
 
 VN_TZ = datetime.timezone(datetime.timedelta(hours=7))
@@ -154,7 +154,7 @@ def verify_gps_location(campus_code):
         return False
     loc = streamlit_geolocation()
     if not loc:
-        st.warning("📡 Đang kết nối dữ liệu GPS... Vui lòng đồng ý cấp quyền truy cập vị trí trên trình duyệt thiết bị.")
+        st.warning("📡 Đang kết nối dữ liệu GPS... Vui lòng đồng ý cấp quyền vị trí trên trình duyệt thiết bị.")
         return False
     lat, lon = loc.get("latitude"), loc.get("longitude")
     if lat is None or lon is None:
@@ -166,7 +166,7 @@ def verify_gps_location(campus_code):
         return False
     return True
 
-# ===================== TRA CỨU TÀI KHOẢN TỪ DANH SÁCH GỐC (BẪY LỖI AN TOÀN) =====================
+# ===================== TRA CỨU TÀI KHOẢN TỪ DANH SÁCH GỐC =====================
 def find_user_by_code(user_type, sheet_key, code_input):
     target_sheet = STAFF_SHEET_NAME if user_type == "GV" else STUDENT_SHEET_NAME
     ws = get_ws_by_title(sheet_key, target_sheet)
@@ -175,7 +175,6 @@ def find_user_by_code(user_type, sheet_key, code_input):
     headers = values[0]
     hn = [norm_header(h) for h in headers]
     
-    # Sử dụng khối kiểm tra an toàn chống lỗi KeyError tiêu đề cột
     msgv_i = hn.index("msgv") if "msgv" in hn else (hn.index("mssv") if "mssv" in hn else 0)
     name_i = hn.index("hovaten") if "hovaten" in hn else 1
     unit_i = hn.index("donvi") if "donvi" in hn else -1
@@ -270,9 +269,6 @@ def render_attendance_flow(user_type, sheet_key):
         st.success(f"🎉 Điểm danh thành công! {user_type}: {user_info['Họ và tên']} ({user_code_full})")
 
 # ===================== GIAO DIỆN QUẢN TRỊ TRUNG TÂM ADMIN FULL TÍNH NĂNG =====================
-def get_base_url():
-    return st.secrets.get("WRAPPER_URL") or st.secrets.get("APP_BASE_URL") or "https://giangvien.streamlit.app"
-
 def get_admin_pw(): return st.secrets.get("ADMIN_PASSWORD", "admin")
 def admin_unlocked(): return bool(st.session_state.get("admin_unlocked"))
 
@@ -380,8 +376,19 @@ def render_admin_dashboard_flow():
         st.subheader(f"Tạo QR Code điểm danh cố định — Phân hệ {target_view}")
         campus_name = st.selectbox("Chọn vị trí cơ sở trường học", list(LOCATIONS.keys()))
         campus_code = LOCATIONS[campus_name]["code"]
+        
+        # ĐƯỢC CẢI TIẾN: Thay vì dùng hàm get_base_url(), bốc trực tiếp URL thực tế mà Admin đang mở trên trình duyệt
+        try:
+            current_url = st.to_url() if hasattr(st, "to_url") else ""
+            if "localhost" in current_url or not current_url:
+                base_url = get_base_url().strip("/")
+            else:
+                base_url = current_url.split("?")[0].strip("/")
+        except Exception:
+            base_url = get_base_url().strip("/")
+
         if st.button("Khởi tạo mã QR", type="primary", use_container_width=True):
-            qr_data = f"{get_base_url()}/?{param_flag}&coso={urllib.parse.quote(campus_code)}"
+            qr_data = f"{base_url}/?{param_flag}&coso={urllib.parse.quote(campus_code)}"
             qr = qrcode.make(qr_data)
             buf = io.BytesIO(); qr.save(buf, format="PNG"); buf.seek(0)
             st.image(Image.open(buf), caption=f"Mã QR cố định ({target_view}) tại {campus_code}", width=380)
@@ -444,10 +451,13 @@ def render_admin_dashboard_flow():
                 if v_rep.empty: st.success("Ghi nhận: Không có vi phạm trong phạm vi lọc.")
                 else: st.dataframe(v_rep, use_container_width=True)
 
-# ===================== PHÂN LUỒNG URL CHÍNH (ROUTING CHUẨN) =====================
-if st.query_params.get("gv") == "1":
+# ===================== PHÂN LUỒNG URL CHÍNH (ĐỒNG BỘ ĐỊA CHỈ THỰC TẾ) =====================
+# Sử dụng phương thức kiểm tra gián tiếp chuỗi thô từ query_params để ép luồng chạy chính xác
+query_keys = [str(k).lower() for k in st.query_params.keys()]
+
+if "gv" in query_keys:
     render_attendance_flow("GV", GV_SHEET_KEY)
-elif st.query_params.get("sv") == "1":
+elif "sv" in query_keys:
     render_attendance_flow("SV", SV_SHEET_KEY)
 else:
     render_admin_dashboard_flow()
