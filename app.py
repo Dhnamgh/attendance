@@ -8,10 +8,8 @@ from math import radians, sin, cos, sqrt, atan2
 
 st.set_page_config(layout="centered")
 
-GV_LOG = st.secrets["GV_SHEET"]
-SV_LOG = st.secrets["SV_SHEET"]
-GV_DATA = st.secrets["GV_DATA"]
-SV_DATA = st.secrets["SV_DATA"]
+GV_SHEET = st.secrets["GV_SHEET"]
+SV_SHEET = st.secrets["SV_SHEET"]
 
 LAT_CENTER = st.secrets["LAT_CENTER"]
 LON_CENTER = st.secrets["LON_CENTER"]
@@ -31,11 +29,12 @@ def client():
 def sheet(k):
     return client().open_by_key(k).sheet1
 
-def load(k):
-    return pd.DataFrame(sheet(k).get_all_records())
-
 def append(k,row):
     sheet(k).append_row(row)
+
+@st.cache_data(ttl=5)
+def load(k):
+    return pd.DataFrame(sheet(k).get_all_records())
 
 # ================= TIME =================
 def now():
@@ -61,19 +60,19 @@ LESSON = {
     11:("16:35","17:25"),
 }
 
-def calc_lessons(ca, f, t):
+def calc_lessons(ca,f,t):
     allowed = range(1,6) if ca=="Sáng" else [7,8,9,10,11]
-    arr = [x for x in allowed if f<=x<=t]
+    arr=[x for x in allowed if f<=x<=t]
     return arr, LESSON[arr[0]][0], LESSON[arr[-1]][1]
 
 def to_min(t):
-    h,m = map(int, t.split(":"))
+    h,m = map(int,t.split(":"))
     return h*60+m
 
 def late(start):
     return max(0, now().hour*60+now().minute - to_min(start))
 
-def required_time(n):
+def required(n):
     base = n*50
     if n>3:
         base+=15
@@ -81,7 +80,7 @@ def required_time(n):
 
 def can_out(checkin_time, need):
     t = datetime.datetime.strptime(checkin_time,"%H:%M:%S").time()
-    dt = datetime.datetime.combine(now().date(), t, VN_TZ)
+    dt = datetime.datetime.combine(now().date(),t,VN_TZ)
     return (now()-dt).total_seconds()/60 >= need
 
 # ================= GPS =================
@@ -107,25 +106,16 @@ def check_gps():
 
     return True
 
-# ================= CHECK DATA =================
-def exists(code, DATA, col):
-    df = load(DATA)
-    return code in df[col].astype(str).values
-
 # ================= CORE =================
-def do_checkin(LOG, DATA, code, col, ca, f, t):
+def do_checkin(SHEET, code, ca, f, t):
 
     if not check_gps():
-        return
-
-    if not exists(code, DATA, col):
-        st.error("Không tồn tại")
         return
 
     arr,s,e = calc_lessons(ca,f,t)
     late_min = late(s)
 
-    append(LOG, [
+    append(SHEET,[
         today(), code, ca,
         f,t,len(arr),
         s,e,
@@ -136,9 +126,9 @@ def do_checkin(LOG, DATA, code, col, ca, f, t):
 
     st.success(f"Đã vào ca - muộn {late_min} phút")
 
-def do_checkout(LOG, code, col):
+def do_checkout(SHEET, code, col):
 
-    df = load(LOG)
+    df = load(SHEET)
 
     last = df[
         (df[col]==code) &
@@ -151,26 +141,26 @@ def do_checkout(LOG, code, col):
 
     last = last.iloc[-1]
 
-    need = required_time(int(last["Số tiết"]))
+    need = required(int(last["Số tiết"]))
 
     if not can_out(last["Giờ"], need):
         st.error("Chưa đủ thời gian")
         return
 
-    append(LOG, [
+    append(SHEET,[
         today(), code,
         "", "", "", "", "", "", "",
         "OUT", now_hms()
     ])
 
-    st.success("Ra ca thành công")
+    st.success("Ra ca")
 
-# ================= UI CHUNG =================
-def render(label, LOG, DATA, col):
+# ================= UI =================
+def render(label, SHEET):
 
     code = st.text_input(label)
 
-    ca = st.selectbox("Ca", ["Sáng","Chiều"])
+    ca = st.selectbox("Ca",["Sáng","Chiều"])
 
     c1,c2 = st.columns(2)
     with c1:
@@ -179,46 +169,28 @@ def render(label, LOG, DATA, col):
         t = st.number_input("Tiết kết thúc",1,11,3)
 
     arr,s,e = calc_lessons(ca,f,t)
-
     st.info(f"{arr} | {s} - {e}")
 
     col1,col2 = st.columns(2)
 
     with col1:
         if st.button("Check-in", use_container_width=True):
-            do_checkin(LOG, DATA, code, col, ca, f, t)
+            do_checkin(SHEET, code, ca, f, t)
 
     with col2:
         if st.button("Check-out", use_container_width=True):
-            do_checkout(LOG, code, col)
+            do_checkout(SHEET, code, label)
 
 # ================= MAIN =================
 st.title("Hệ thống điểm danh")
 st.image("h.png", width=150)
 
-menu = st.radio("", ["Giảng viên","Sinh viên","Quản trị"])
+menu = st.radio("", ["Giảng viên","Sinh viên"])
 
-if menu == "Giảng viên":
+if menu=="Giảng viên":
     st.subheader("Điểm danh giảng viên")
-    render("MSGV", GV_LOG, GV_DATA, "MSGV")
-
-elif menu == "Sinh viên":
-    st.subheader("Điểm danh sinh viên")
-    render("MSSV", SV_LOG, SV_DATA, "MSSV")
+    render("MSGV", GV_SHEET)
 
 else:
-    st.subheader("Quản trị")
-
-    pw = st.text_input("Mật khẩu", type="password")
-
-    if pw == ADMIN_PASSWORD:
-        df_gv = load(GV_LOG)
-        df_sv = load(SV_LOG)
-
-        st.write("Giảng viên")
-        if not df_gv.empty:
-            st.line_chart(df_gv.groupby("Ngày").size())
-
-        st.write("Sinh viên")
-        if not df_sv.empty:
-            st.line_chart(df_sv.groupby("Ngày").size())
+    st.subheader("Điểm danh sinh viên")
+    render("MSSV", SV_SHEET)
