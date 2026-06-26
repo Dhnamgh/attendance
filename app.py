@@ -33,7 +33,7 @@ SV_SHEET_KEY = st.secrets["SV_SHEET"]
 
 # Tên sheet danh sách gốc (Cơ sở dữ liệu danh sách lớp)
 STAFF_SHEET_NAME = st.secrets.get("STAFF_SHEET_NAME", "NhanSu") 
-STUDENT_SHEET_NAME = "D26A"                                     # Đã ghim cố định lớp D26A của thầy
+STUDENT_SHEET_NAME = "D26A"                                     # Đã cập nhật cố định lớp D26A của thầy
 LOG_SHEET_NAME = st.secrets.get("LOG_SHEET_NAME", "Log")
 
 VN_TZ = datetime.timezone(datetime.timedelta(hours=7))
@@ -269,6 +269,101 @@ def render_attendance_flow(user_type, sheet_key):
         st.success(f"🎉 Điểm danh thành công! {user_type}: {user_info['Họ và tên']} ({user_code_full})")
 
 # ===================== GIAO DIỆN QUẢN TRỊ TRUNG TÂM ADMIN FULL TÍNH NĂNG =====================
+def get_admin_pw(): return st.secrets.get("ADMIN_PASSWORD", "admin")
+def admin_unlocked(): return bool(st.session_state.get("admin_unlocked"))
+
+def get_all_records_by_header(ws):
+    values = _google_api_retry(lambda: ws.get_all_values())
+    if not values: return []
+    headers = values[0]
+    out = []
+    for row in values[1:]:
+        item = {h: (row[i] if i < len(row) else "") for i, h in enumerate(headers)}
+        if any(str(v).strip() for v in item.values()): out.append(item)
+    return out
+
+def group_bo_mon_don_vi(row):
+    bo_mon = safe_str(row.get("Bộ môn"))
+    don_vi = safe_str(row.get("Đơn vị"))
+    return bo_mon if bo_mon else (don_vi if don_vi else "Chưa xác định")
+
+def prepare_log_dataframe(sheet_key):
+    ws = get_ws_by_title(sheet_key, LOG_SHEET_NAME, is_log=True)
+    logs = get_all_records_by_header(ws)
+    if not logs: return pd.DataFrame()
+    df = pd.DataFrame(logs)
+    for c in LOG_COLUMNS:
+        if c not in df.columns: df[c] = ""
+    df["Ngày_chuẩn"] = df["Ngày"].apply(normalize_date_value)
+    df["Ngày_dt"] = df["Ngày"].apply(parse_date_value)
+    df["Bộ môn - Đơn vị"] = df.apply(group_bo_mon_don_vi, axis=1)
+    df["Vào muộn phút"] = pd.to_numeric(df["Vào muộn phút"], errors="coerce").fillna(0)
+    df["Số tiết"] = pd.to_numeric(df["Số tiết"], errors="coerce").fillna(0)
+    return df
+
+def current_period_filter(df, mode, selected_date=None):
+    if mode == "Theo ngày":
+        valid_dates = sorted([d for d in df["Ngày_chuẩn"].dropna().astype(str).unique() if d])
+        if selected_date is None:
+            selected_date = today_str() if today_str() in valid_dates else (valid_dates[-1] if valid_dates else today_str())
+        return df[df["Ngày_chuẩn"] == selected_date].copy(), f"ngày {selected_date}"
+    if mode == "Theo tuần hiện hành":
+        today = now_vn().date()
+        start = today - datetime.timedelta(days=today.weekday())
+        end = start + datetime.timedelta(days=6)
+        return df[(df["Ngày_dt"] >= start) & (df["Ngày_dt"] <= end)].copy(), f"tuần ({start.strftime('%d/%m/%Y')} - {end.strftime('%d/%m/%Y')})"
+    today = now_vn().date()
+    start = today.replace(day=1)
+    if today.month == 12: end = today.replace(year=today.year+1, month=1, day=1) - datetime.timedelta(days=1)
+    else: end = today.replace(month=today.month+1, day=1) - datetime.timedelta(days=1)
+    return df[(df["Ngày_dt"] >= start) & (df["Ngày_dt"] <= end)].copy(), f"tháng hiện hành ({start.strftime('%m/%Y')})"
+
+def compute_dashboard(filtered):
+    if filtered.empty: return {"Tổng số người": 0, "Đang trong ca": 0, "Đã ra ca": 0, "Vào muộn": 0, "Tổng tiết": 0}
+    total_p = filtered["MSGV"].nunique()
+    out_count = int((filtered["IN/OUT"].astype(str).str.upper() == "OUT").sum())
+    in_df = filtered[filtered["IN/OUT"].astype(str).str.upper() == "IN"].copy()
+    late_count = int((pd.to_numeric(in_df.get("Vào muộn phút", pd.Series(dtype=float)), errors="coerce").fillna(0) > LATE_THRESHOLD_MINUTES).sum())
+    total_lessons = int(pd.to_numeric(in_df.get("Số tiết", pd.Series(dtype=float)), errors="coerce").fillna(0).sum())
+    open_count = 0
+    for (msgv, ca), g in filtered.groupby(["MSGV", "Ca"], dropna=False):
+        if (g["IN/OUT"].astype(str).str.upper() == "IN").sum() > (g["IN/OUT"].astype(str).str.upper() == "OUT").sum(): open_count += 1
+    return {"Tổng số người": int(total_p), "Đang trong ca": int(open_count), "Đã ra ca": out_count, "Vào muộn": late_count, "Tổng tiết": total_lessons}
+
+def build_violation_report(summary):
+    rows = []
+    if summary is None or summary.empty: return pd.DataFrame()
+    for _, r in summary.iterrows():
+        row = r.to_dict()
+        late = float(pd.to_numeric(pd.Series([r.get("Vào muộn phút", 0)]), errors="coerce").fillna(0).iloc[0])
+        if not safe_str(r.get("Vào ca")): rows.append({**row, "Loại vi phạm": "Không vào ca"})
+        if safe_str(r.get("Vào ca")) and not safe_str(r.get("Ra ca")): rows.append({**row, "Loại vi phạm": "Không ra ca"})
+        if late > LATE_THRESHOLD_MINUTES: rows.append({**row, "Loại vi phạm": f"Vào ca muộn > {LATE_THRESHOLD_MINUTES} phút"})
+    return pd.DataFrame(rows)
+
+def summarize_hours(records):
+    if not records: return pd.DataFrame()
+    df = pd.DataFrame(records)
+    for c in LOG_COLUMNS:
+        if c not in df.columns: df[c] = ""
+    rows = []
+    for keys, g in df.groupby(["Ngày", "MSGV", "Họ và tên", "Đơn vị", "Bộ môn", "Ca"], dropna=False):
+        ngay, msgv, hoten, donvi, bomon, ca = keys
+        ins = g[g["IN/OUT"] == "IN"]["Giờ"].tolist()
+        outs = g[g["IN/OUT"] == "OUT"]["Giờ"].tolist()
+        vao, ra = min(ins) if ins else "", max(outs) if outs else ""
+        hours = ""
+        if vao and ra:
+            try:
+                sec = (datetime.datetime.strptime(ra, "%H:%M:%S") - datetime.datetime.strptime(vao, "%H:%M:%S")).total_seconds()
+                hours = round(sec / 3600, 2) if sec >= 0 else ""
+            except Exception: pass
+        rows.append({
+            "Ngày": ngay, "MSGV": msgv, "Họ và tên": hoten, "Đơn vị": donvi, "Bộ môn": bomon, "Ca": ca,
+            "Vào ca": vao, "Ra ca": ra, "Giờ có mặt": hours, "Cơ sở": ", ".join(sorted(set(g["CS"].astype(str)))),
+        })
+    return pd.DataFrame(rows)
+
 def render_admin_dashboard_flow():
     with st.sidebar:
         st.header("🔒 Đăng nhập Admin")
@@ -368,8 +463,7 @@ def render_admin_dashboard_flow():
                 if v_rep.empty: st.success("Ghi nhận: Không có vi phạm trong phạm vi lọc.")
                 else: st.dataframe(v_rep, use_container_width=True)
 
-# ===================== PHÂN LUỒNG URL CHÍNH (ĐÃ FIX LỖI KEYERROR) =====================
-# Sử dụng phương thức an toàn .get() thay vì gọi thẳng cặp ngoặc vuông [] để bẫy lỗi KeyError
+# ===================== PHÂN LUỒNG URL CHÍNH (ROUTING CHUẨN) =====================
 if st.query_params.get("gv") == "1":
     render_attendance_flow("GV", GV_SHEET_KEY)
 elif st.query_params.get("sv") == "1":
