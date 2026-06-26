@@ -1,97 +1,8 @@
-import streamlit as st
-import datetime
-import pandas as pd
-import gspread
-from google.oauth2.service_account import Credentials
-from streamlit_geolocation import streamlit_geolocation
-from math import radians, sin, cos, sqrt, atan2
-
-st.set_page_config(layout="centered")
-
-# ===== CHỈ DÙNG 2 SHEET =====
-GV_SHEET = st.secrets["GV_SHEET"]
-SV_SHEET = st.secrets["SV_SHEET"]
-
-# ===== GIỐNG APP GV (KHÔNG DÙNG SECRETS) =====
-LAT_CENTER = 10.754665
-LON_CENTER = 106.663381
-RADIUS = 100
-
-VN_TZ = datetime.timezone(datetime.timedelta(hours=7))
-
-# ================= GOOGLE =================
-@st.cache_resource
-def client():
-    creds = Credentials.from_service_account_info(
-        dict(st.secrets["google_service_account"]),
-        scopes=["https://www.googleapis.com/auth/spreadsheets"]
-    )
-    return gspread.authorize(creds)
-
-def get_sheet(key):
-    return client().open_by_key(key).sheet1
-
-def append_row(key, row):
-    get_sheet(key).append_row(row)
-
-@st.cache_data(ttl=5)
-def load_df(key):
-    return pd.DataFrame(get_sheet(key).get_all_records())
-
-# ================= TIME =================
-def now():
-    return datetime.datetime.now(VN_TZ)
-
-def today():
-    return now().strftime("%d/%m/%Y")
-
-def now_str():
-    return now().strftime("%H:%M:%S")
-
-# ================= LESSON =================
-LESSON = {
-    1:("07:00","07:50"),
-    2:("07:50","08:40"),
-    3:("08:40","09:30"),
-    4:("09:45","10:35"),
-    5:("10:35","11:25"),
-    7:("13:00","13:50"),
-    8:("13:50","14:40"),
-    9:("14:40","15:30"),
-    10:("15:45","16:35"),
-    11:("16:35","17:25")
-}
-
-def calc_lessons(ca, f, t):
-    allowed = range(1,6) if ca == "Sáng" else [7,8,9,10,11]
-    arr = [x for x in allowed if f <= x <= t]
-    return arr, LESSON[arr[0]][0], LESSON[arr[-1]][1]
-
-def to_min(t):
-    h, m = map(int, t.split(":"))
-    return h*60 + m
-
-def calc_late(start):
-    return max(0, now().hour*60 + now().minute - to_min(start))
-
-def required_time(n):
-    total = n*50
-    if n > 3:
-        total += 15
-    return total
-
-def can_checkout(start_time, need):
-    t = datetime.datetime.strptime(start_time,"%H:%M:%S").time()
-    dt = datetime.datetime.combine(now().date(), t, VN_TZ)
-    worked = (now() - dt).total_seconds() / 60
-    return worked >= need
-
-# ================= GPS =================
-def check_gps():
-    loc = streamlit_geolocation()
-
+# ================= GPS (ĐÃ SỬA) =================
+def check_gps(loc):
+    # Nhận trực tiếp dữ liệu loc từ form truyền vào thay vì tự gọi hàm độc lập
     if not loc or not loc.get("latitude"):
-        st.error("Không lấy được GPS")
+        st.error("Không lấy được GPS hoặc chưa cấp quyền vị trí.")
         return False
 
     lat = loc["latitude"]
@@ -104,14 +15,20 @@ def check_gps():
     d = 2 * 6371000 * atan2(sqrt(a), sqrt(1-a))
 
     if d > RADIUS:
-        st.error("Ngoài khu vực")
+        st.error(f"Ngoài khu vực điểm danh (Khoảng cách hiện tại: {round(d, 1)}m)")
         return False
 
     return True
 
-# ================= LOGIC CHUNG =================
-def checkin(sheet_key, code, ca, f, t):
-    if not check_gps():
+# ================= LOGIC CHUNG (ĐÃ SỬA) =================
+def checkin(sheet_key, code, ca, f, t, loc):
+    # 1. Kiểm tra mã định danh trước
+    if not code.strip():
+        st.error("Vui lòng nhập Mã số trước khi Check-in!")
+        return
+
+    # 2. Kiểm tra GPS dựa trên tọa độ lấy lúc bấm nút
+    if not check_gps(loc):
         return
 
     arr, s, e = calc_lessons(ca, f, t)
@@ -130,6 +47,10 @@ def checkin(sheet_key, code, ca, f, t):
 
 
 def checkout(sheet_key, code, col_name):
+    if not code.strip():
+        st.error("Vui lòng nhập Mã số trước khi Check-out!")
+        return
+
     df = load_df(sheet_key)
 
     last = df[
@@ -158,10 +79,12 @@ def checkout(sheet_key, code, col_name):
 
     st.success("Ra ca thành công")
 
-# ================= FORM =================
+# ================= FORM (ĐÃ SỬA) =================
 def render(label, sheet_key):
+    # Gọi định vị ở mức giao diện chính để người dùng cấp quyền trước
+    loc = streamlit_geolocation()
 
-    code = st.text_input(label)
+    code = st.text_input(label, value="")
 
     ca = st.selectbox("Ca", ["Sáng", "Chiều"])
 
@@ -173,13 +96,14 @@ def render(label, sheet_key):
 
     arr, s, e = calc_lessons(ca, f, t)
 
-    st.info(f"{arr} | {s} - {e}")
+    st.info(f"Tiết học: {arr} | Giờ chuẩn: {s} - {e}")
 
     col1, col2 = st.columns(2)
 
     with col1:
+        # Truyền thêm biến loc vào hàm checkin khi bấm nút
         if st.button("Check-in", use_container_width=True):
-            checkin(sheet_key, code, ca, f, t)
+            checkin(sheet_key, code, ca, f, t, loc)
 
     with col2:
         if st.button("Check-out", use_container_width=True):
@@ -187,14 +111,13 @@ def render(label, sheet_key):
 
 # ================= MAIN =================
 st.title("Hệ thống điểm danh")
-st.image("h.png", width=150)
+# st.image("h.png", width=150) # Thầy nhớ kiểm tra lại file ảnh này có sẵn ở thư mục chưa nhé
 
 menu = st.radio("", ["Giảng viên", "Sinh viên"])
 
 if menu == "Giảng viên":
     st.subheader("Điểm danh giảng viên")
     render("MSGV", GV_SHEET)
-
 else:
     st.subheader("Điểm danh sinh viên")
     render("MSSV", SV_SHEET)
