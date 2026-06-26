@@ -33,7 +33,7 @@ SV_SHEET_KEY = st.secrets["SV_SHEET"]
 
 # Tên sheet danh sách gốc (Cơ sở dữ liệu danh sách lớp)
 STAFF_SHEET_NAME = st.secrets.get("STAFF_SHEET_NAME", "NhanSu") 
-STUDENT_SHEET_NAME = "D26A"                                     # ĐÃ CẬP NHẬT: Tên lớp Sinh viên mới theo yêu cầu của thầy
+STUDENT_SHEET_NAME = "D26A"                                     # Đã ghim cố định lớp D26A của thầy
 LOG_SHEET_NAME = st.secrets.get("LOG_SHEET_NAME", "Log")
 
 VN_TZ = datetime.timezone(datetime.timedelta(hours=7))
@@ -175,7 +175,6 @@ def find_user_by_code(user_type, sheet_key, code_input):
     headers = values[0]
     hn = [norm_header(h) for h in headers]
     
-    # Tự động bắt vị trí cột mã số định danh dựa theo header (MSSV / MSGV)
     msgv_i = hn.index("msgv") if "msgv" in hn else (hn.index("mssv") if "mssv" in hn else 0)
     name_i = hn.index("hovaten") if "hovaten" in hn else 1
     unit_i = hn.index("donvi") if "donvi" in hn else 2
@@ -218,7 +217,6 @@ def render_attendance_flow(user_type, sheet_key):
         st.error("Chủ nhật hệ thống không hỗ trợ ghi nhận điểm danh.")
         st.stop()
         
-    # Ép quét vị trí thực tế cho cả Giảng viên và Sinh viên để chống điểm danh hộ từ xa
     if not verify_gps_location(campus_code): st.stop()
     
     shift = infer_shift()
@@ -251,19 +249,16 @@ def render_attendance_flow(user_type, sheet_key):
         lw = get_ws_by_title(sheet_key, LOG_SHEET_NAME, is_log=True)
         ensure_header(lw, LOG_COLUMNS)
         
-        # Tính số phút muộn so với mốc phân công học/dạy
         start_t = datetime.datetime.strptime(info_tiet["start_time"], "%H:%M").time()
         start_dt = datetime.datetime.combine(now_vn().date(), start_t, tzinfo=VN_TZ)
         late_min = max(0, int((now_vn() - start_dt).total_seconds() // 60)) if action == "IN" else 0
         
-        # Chặn giờ ra ca sớm nếu chưa hết giờ học/giờ dạy
         if action == "OUT":
             end_t = datetime.datetime.strptime(info_tiet["end_time"], "%H:%M").time()
             if now_vn().time() < end_t:
                 st.error(f"❌ Chưa đến thời điểm ra ca! Khung giờ kết thúc quy định là {info_tiet['end_time']}.")
                 st.stop()
                 
-        # Thực hiện append hàng dữ liệu Log đồng bộ cấu trúc 100% theo hình vẽ thực tế
         _google_api_retry(lambda: lw.append_row([
             today_str(), user_code_full, user_info["Họ và tên"], user_info["Đơn vị"], user_info["Bộ môn"],
             campus_code, shift, action, now_vn().strftime("%H:%M:%S"), timestamp_str(),
@@ -274,9 +269,6 @@ def render_attendance_flow(user_type, sheet_key):
         st.success(f"🎉 Điểm danh thành công! {user_type}: {user_info['Họ và tên']} ({user_code_full})")
 
 # ===================== GIAO DIỆN QUẢN TRỊ TRUNG TÂM ADMIN FULL TÍNH NĂNG =====================
-def get_admin_pw(): return st.secrets.get("ADMIN_PASSWORD", "admin")
-def admin_unlocked(): return bool(st.session_state.get("admin_unlocked"))
-
 def render_admin_dashboard_flow():
     with st.sidebar:
         st.header("🔒 Đăng nhập Admin")
@@ -308,7 +300,6 @@ def render_admin_dashboard_flow():
             index=0
         )
 
-    # 1. Tạo QR cố định theo Cơ sở
     if menu == "Tạo QR cố định theo Cơ sở":
         st.subheader(f"Tạo QR Code điểm danh cố định — Phân hệ {target_view}")
         campus_name = st.selectbox("Chọn vị trí cơ sở trường học", list(LOCATIONS.keys()))
@@ -320,7 +311,6 @@ def render_admin_dashboard_flow():
             st.image(Image.open(buf), caption=f"Mã QR cố định ({target_view}) tại {campus_code}", width=380)
             st.code(qr_data)
             
-    # 2. Dashboard tổng hợp đồ họa
     elif menu == "Dashboard tổng hợp":
         st.subheader(f"Dashboard tổng hợp biểu đồ — Phân hệ {target_view}")
         df = prepare_log_dataframe(active_sheet_key)
@@ -332,7 +322,6 @@ def render_admin_dashboard_flow():
             chart = alt.Chart(dept).mark_bar().encode(x=alt.X("Bộ môn - Đơn vị:N", sort="-y"), y="Số lượt log:Q", color="Bộ môn - Đơn vị:N").properties(height=340)
             st.altair_chart(chart, use_container_width=True)
 
-    # 3. Tra cứu tìm kiếm giảng viên / sinh viên theo danh sách gốc
     elif menu == "Tìm kiếm thông tin":
         st.subheader(f"Tra cứu thông tin danh sách gốc ({target_sheet}) — Phân hệ {target_view}")
         q = st.text_input("Nhập 4 số cuối, đầy đủ mã số hoặc họ tên:")
@@ -347,7 +336,6 @@ def render_admin_dashboard_flow():
                 else: st.warning("Không tìm thấy kết quả phù hợp.")
             else: st.info("Bảng danh sách trống.")
 
-    # 4. Thống kê chi tiết & báo cáo vi phạm trễ tiết công phu của thầy
     elif menu == "Thống kê điểm danh":
         st.subheader(f"Thống kê điểm danh & Phân tích vi phạm — Phân hệ {target_view}")
         df = prepare_log_dataframe(active_sheet_key)
@@ -380,10 +368,11 @@ def render_admin_dashboard_flow():
                 if v_rep.empty: st.success("Ghi nhận: Không có vi phạm trong phạm vi lọc.")
                 else: st.dataframe(v_rep, use_container_width=True)
 
-# ===================== PHÂN LUỒNG URL CHÍNH (ROUTING CHUẨN) =====================
-if "gv" in st.query_params and str(st.query_params["gv"]) == "1":
+# ===================== PHÂN LUỒNG URL CHÍNH (ĐÃ FIX LỖI KEYERROR) =====================
+# Sử dụng phương thức an toàn .get() thay vì gọi thẳng cặp ngoặc vuông [] để bẫy lỗi KeyError
+if st.query_params.get("gv") == "1":
     render_attendance_flow("GV", GV_SHEET_KEY)
-elif "sv" in st.query_params and str(st.query_params["sv"]) == "1":
+elif st.query_params.get("sv") == "1":
     render_attendance_flow("SV", SV_SHEET_KEY)
 else:
     render_admin_dashboard_flow()
