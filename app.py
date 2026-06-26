@@ -317,11 +317,10 @@ def render_admin_dashboard_flow():
             st.info(f"Hệ thống file dữ liệu Log của phân hệ {target_view} hiện tại trống.")
 
 # ===================== ĐIỀU HƯỚNG VÀ PHÂN LUỒNG URL CHÍNH (ROUTING) =====================
-params = {k: v[0] if isinstance(v, list) and v else v for k, v in st.experimental_get_query_params().items()}
-
-if params.get("gv") == "1":
+# Thay thế bằng đoạn code chuẩn hóa mới này:
+if "gv" in st.query_params and st.query_params["gv"] == "1":
     render_attendance_flow("GV", GV_SHEET_KEY)
-elif params.get("sv") == "1":
+elif "sv" in st.query_params and st.query_params["sv"] == "1":
     render_attendance_flow("SV", SV_SHEET_KEY)
 else:
     render_admin_dashboard_flow()
