@@ -1,153 +1,170 @@
 import streamlit as st
+import datetime
+import pandas as pd
+import gspread
+from google.oauth2.service_account import Credentials
 
-st.set_page_config(layout="wide")
+# ================= CONFIG =================
+st.set_page_config(page_title="Attendance", layout="centered")
 
-# ================= CSS CHUẨN =================
-st.markdown("""
-<style>
+GV_SHEET = st.secrets["GV_SHEET"]
+SV_SHEET = st.secrets["SV_SHEET"]
+ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
 
-/* remove padding */
-.block-container {
-    padding-top:0 !important;
+VN_TZ = datetime.timezone(datetime.timedelta(hours=7))
+
+# ================= GOOGLE =================
+@st.cache_resource
+def client():
+    creds = Credentials.from_service_account_info(
+        dict(st.secrets["google_service_account"]),
+        scopes=["https://www.googleapis.com/auth/spreadsheets"]
+    )
+    return gspread.authorize(creds)
+
+def sheet(k):
+    return client().open_by_key(k).sheet1
+
+@st.cache_data(ttl=10)
+def load(k):
+    return pd.DataFrame(sheet(k).get_all_records())
+
+def append(k, row):
+    sheet(k).append_row(row)
+
+# ================= TIME =================
+def now():
+    return datetime.datetime.now(VN_TZ)
+
+def today():
+    return now().strftime("%d/%m/%Y")
+
+# ================= LESSON ENGINE =================
+LESSON = {
+    1:("07:00","07:50"),
+    2:("07:50","08:40"),
+    3:("08:40","09:30"),
+    4:("09:45","10:35"),
+    5:("10:35","11:25"),
+    7:("13:00","13:50"),
+    8:("13:50","14:40"),
+    9:("14:40","15:30"),
+    10:("15:45","16:35"),
+    11:("16:35","17:25"),
 }
 
-/* header full bar */
-.header {
-    position:relative;
-    width:100%;
-    height:70px;
-    background:#2c6b95;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-}
+def calc_lessons(shift, start, end):
+    if shift == "Sáng":
+        allowed = range(1,6)
+    else:
+        allowed = [7,8,9,10,11]
 
-/* title */
-.header-title {
-    color:white;
-    font-size:24px;
-    font-weight:600;
-}
+    arr = [x for x in allowed if start <= x <= end]
+    s = LESSON[arr[0]][0]
+    e = LESSON[arr[-1]][1]
 
-/* logo wrapper (chìa ra sidebar) */
-.header-logo {
-    position:absolute;
-    left:-5px;
-    top:5px;
-    height:60px;
-}
+    return arr, s, e
 
-/* sidebar style */
-section[data-testid="stSidebar"]{
-    background:#2c6b95 !important;
-}
-section[data-testid="stSidebar"] *{
-    color:white !important;
-    font-size:16px !important;
-}
+# ================= UI =================
+st.title("Hệ thống điểm danh")
 
-/* content */
-.main-content {
-    max-width:1000px;
-    margin:auto;
-    padding:20px;
-}
+# ✅ logo đặt đúng cách (an toàn)
+st.image("h.png", width=220)
 
-/* card */
-.card {
-    background:white;
-    padding:20px;
-    border-radius:10px;
-    margin-top:20px;
-}
-
-/* footer */
-.footer {
-    background:#2b2f65;
-    color:white;
-    padding:15px;
-    text-align:center;
-    margin-top:40px;
-}
-
-/* mobile */
-@media (max-width:768px){
-    .header-title {font-size:18px;}
-    .header {height:55px;}
-    .header-logo {height:45px;}
-}
-
-</style>
-""", unsafe_allow_html=True)
-
-# ================= HEADER + LOGO =================
-col1, col2 = st.columns([1,8])
-
-with col1:
-    # ✅ LOGO THẬT (KHÔNG HTML IMG)
-    st.image("h.png", width=180)
-
-with col2:
-    st.markdown("""
-    <div class="header">
-        <div class="header-title">HỆ THỐNG ĐIỂM DANH</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-# ================= SIDEBAR =================
 menu = st.sidebar.radio(
-    "",
+    "Chọn chức năng",
     ["Giảng viên", "Sinh viên", "Quản trị"]
 )
 
-# ================= CONTENT =================
-st.markdown("<div class='main-content'>", unsafe_allow_html=True)
+# ================= FORM DÙNG CHUNG =================
+def attendance_form(role, sheet_name):
 
+    if role == "Giảng viên":
+        code = st.text_input("MSGV")
+    else:
+        code = st.text_input("MSSV")
+
+    name = st.text_input("Họ tên")
+
+    shift = st.selectbox("Ca", ["Sáng", "Chiều"])
+
+    c1, c2 = st.columns(2)
+    with c1:
+        start = st.number_input("Tiết bắt đầu", 1, 11, 1)
+    with c2:
+        end = st.number_input("Tiết kết thúc", 1, 11, 3)
+
+    arr, s, e = calc_lessons(shift, start, end)
+
+    st.info(f"{arr} | {s} - {e}")
+
+    col1, col2 = st.columns(2)
+
+    # ===== CHECK-IN =====
+    with col1:
+        if st.button("Check-in", use_container_width=True):
+            append(sheet_name, [
+                today(), code, name, shift,
+                start, end, len(arr),
+                s, e,
+                "IN",
+                now().strftime("%H:%M:%S")
+            ])
+            st.success("Đã check-in")
+
+    # ===== CHECK-OUT =====
+    with col2:
+        if st.button("Check-out", use_container_width=True):
+            append(sheet_name, [
+                today(), code, name, shift,
+                "", "", "", "", "",
+                "OUT",
+                now().strftime("%H:%M:%S")
+            ])
+            st.success("Đã check-out")
+
+# ================= GIẢNG VIÊN =================
 if menu == "Giảng viên":
-    st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.subheader("Điểm danh giảng viên")
+    attendance_form("Giảng viên", GV_SHEET)
 
-    st.text_input("MSGV")
-    st.text_input("Họ tên")
-    st.selectbox("Ca", ["Sáng", "Chiều"])
-    st.number_input("Tiết bắt đầu",1,11,1)
-    st.number_input("Tiết kết thúc",1,11,3)
-    st.info("[1, 2, 3] | 07:00 - 09:30")
-
-    st.button("Check-in")
-    st.button("Check-out")
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
+# ================= SINH VIÊN =================
 elif menu == "Sinh viên":
-    st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.subheader("Điểm danh sinh viên")
+    attendance_form("Sinh viên", SV_SHEET)
 
-    st.text_input("MSSV")
-    st.text_input("Họ tên")
-    st.selectbox("Ca", ["Sáng", "Chiều"])
-    st.number_input("Tiết bắt đầu",1,11,1)
-    st.number_input("Tiết kết thúc",1,11,3)
-    st.info("[1, 2, 3] | 07:00 - 09:30")
-
-    st.button("Check-in SV")
-    st.button("Check-out SV")
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
+# ================= QUẢN TRỊ =================
 else:
-    st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.subheader("Quản trị hệ thống")
 
-    st.text_input("Mật khẩu", type="password")
+    pw = st.text_input("Mật khẩu", type="password")
 
-    st.markdown("</div>", unsafe_allow_html=True)
+    if pw == ADMIN_PASSWORD:
 
-st.markdown("</div>", unsafe_allow_html=True)
+        df_gv = load(GV_SHEET)
+        df_sv = load(SV_SHEET)
+
+        st.markdown("### Tổng quan")
+
+        col1, col2 = st.columns(2)
+        col1.metric("Tổng GV", len(df_gv))
+        col2.metric("Tổng SV", len(df_sv))
+
+        if not df_gv.empty:
+            st.markdown("### Thống kê giảng viên")
+            st.line_chart(df_gv.groupby("Ngày").size())
+
+        if not df_sv.empty:
+            st.markdown("### Thống kê sinh viên")
+            st.line_chart(df_sv.groupby("Ngày").size())
+
+        st.markdown("### Dữ liệu chi tiết")
+        st.dataframe(df_gv, use_container_width=True)
 
 # ================= FOOTER =================
 st.markdown("""
-<div class="footer">
+<hr>
+<p style='text-align:center;font-size:13px'>
 Đại học Y Dược TP.HCM - 217 Hồng Bàng
-</div>
+</p>
 """, unsafe_allow_html=True)
