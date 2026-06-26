@@ -4,6 +4,7 @@ import pandas as pd
 import gspread
 from google.oauth2.service_account import Credentials
 
+# ================= CONFIG =================
 st.set_page_config(layout="wide")
 
 GV_SHEET = st.secrets["GV_SHEET"]
@@ -12,11 +13,10 @@ ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
 
 VN_TZ = datetime.timezone(datetime.timedelta(hours=7))
 
-# ================= CSS =================
+# ================= CSS (KHÔNG PHÁ SIDEBAR) =================
 st.markdown("""
 <style>
-.block-container {padding:0!important;}
-header[data-testid="stHeader"]{display:none}
+.block-container {padding-top:0.5rem;}
 
 /* HEADER */
 .header {
@@ -25,33 +25,33 @@ header[data-testid="stHeader"]{display:none}
     display:flex;
     align-items:center;
     justify-content:center;
+    border-radius:4px;
 }
-.header-title {
+.header-title{
     color:white;
     font-size:22px;
     font-weight:600;
 }
 
-/* SIDEBAR */
-section[data-testid="stSidebar"]{
-    background:#2c6b95!important;
+/* SIDEBAR (CHỈ STYLE, KHÔNG ĐỤNG CẤU TRÚC) */
+section[data-testid="stSidebar"] {
+    background:#2c6b95 !important;
 }
 section[data-testid="stSidebar"] *{
-    color:white!important;
-    font-size:18px !important;
+    color:white !important;
+    font-size:16px !important;
 }
 
 /* CONTENT */
-.container {
+.container{
     max-width:1000px;
     margin:auto;
-    padding:20px;
 }
 
 /* CARD */
 .card{
     background:white;
-    padding:20px;
+    padding:18px;
     border-radius:8px;
     margin-top:20px;
 }
@@ -65,15 +65,8 @@ section[data-testid="stSidebar"] *{
     background:#2b2f65;
     color:white;
     text-align:center;
-    padding:12px;
-}
-
-/* MOBILE */
-@media (max-width:768px){
-    section[data-testid="stSidebar"]{
-        width:150px !important;
-    }
-    .header-title{font-size:18px}
+    padding:10px;
+    font-size:13px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -87,7 +80,7 @@ st.markdown("""
 
 # ================= SIDEBAR =================
 
-# ✅ LOGO ĐÚNG VỊ TRÍ (QUAN TRỌNG)
+# ✅ LOGO CHUẨN – KHÔNG HTML
 st.sidebar.image("h.png", use_container_width=True)
 
 menu = st.sidebar.radio(
@@ -122,7 +115,7 @@ def today():
     return now().strftime("%d/%m/%Y")
 
 # ================= LESSON =================
-LESSON={
+LESSON = {
     1:("07:00","07:50"),2:("07:50","08:40"),
     3:("08:40","09:30"),4:("09:45","10:35"),
     5:("10:35","11:25"),7:("13:00","13:50"),
@@ -138,6 +131,7 @@ def calc(shift,f,t):
 # ================= CONTENT =================
 st.markdown("<div class='container'>", unsafe_allow_html=True)
 
+# ================= GIẢNG VIÊN =================
 if menu=="Giảng viên":
     st.markdown("<div class='card'>", unsafe_allow_html=True)
 
@@ -154,14 +148,15 @@ if menu=="Giảng viên":
 
     if st.button("Check-in"):
         append(GV_SHEET,[today(),msgv,name,ca,f,t,len(arr),s,e,"IN",now().strftime("%H:%M:%S")])
-        st.success("Đã vào")
+        st.success("Đã vào ca")
 
     if st.button("Check-out"):
         append(GV_SHEET,[today(),msgv,name,ca,"","","","","","OUT",now().strftime("%H:%M:%S")])
-        st.success("Đã ra")
+        st.success("Đã ra ca")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
+# ================= SINH VIÊN =================
 elif menu=="Sinh viên":
     st.markdown("<div class='card'>", unsafe_allow_html=True)
 
@@ -186,6 +181,7 @@ elif menu=="Sinh viên":
 
     st.markdown("</div>", unsafe_allow_html=True)
 
+# ================= QUẢN TRỊ =================
 else:
     st.markdown("<div class='card'>", unsafe_allow_html=True)
 
