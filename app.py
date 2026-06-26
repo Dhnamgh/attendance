@@ -27,370 +27,123 @@ except Exception:
     geodesic = None
 
 
-# ===================== CẤU HÌNH =====================
-MSGV_PREFIX = st.secrets.get("SESSION_PREFIX", "0607")
+# ===================== CẤU HÌNH HỆ THỐNG ĐỒNG BỘ =====================
 GV_SHEET_KEY = st.secrets["GV_SHEET"]
 SV_SHEET_KEY = st.secrets["SV_SHEET"]
 STAFF_SHEET_NAME = st.secrets.get("STAFF_SHEET_NAME", "NhanSu")
 LOG_SHEET_NAME = st.secrets.get("LOG_SHEET_NAME", "Log")
 VN_TZ = datetime.timezone(datetime.timedelta(hours=7))
 
+# Quy định khung giờ tiết học dùng chung (1 tiết = 50 phút, giải lao 15 phút sau tiết 3)
 LESSON_MINUTES = int(st.secrets.get("LESSON_MINUTES", 50))
 BREAK_AFTER_LESSONS = int(st.secrets.get("BREAK_AFTER_LESSONS", 3))
 BREAK_MINUTES = int(st.secrets.get("BREAK_MINUTES", 15))
 LATE_THRESHOLD_MINUTES = int(st.secrets.get("LATE_THRESHOLD_MINUTES", 15))
 
 LESSON_SCHEDULE = {
-    1: ("07:00", "07:50"),
-    2: ("07:50", "08:40"),
-    3: ("08:40", "09:30"),
-    4: ("09:45", "10:35"),
-    5: ("10:35", "11:25"),
-    7: ("13:00", "13:50"),
-    8: ("13:50", "14:40"),
-    9: ("14:40", "15:30"),
-    10: ("15:45", "16:35"),
-    11: ("16:35", "17:25"),
+    1: ("07:00", "07:50"), 2: ("07:50", "08:40"), 3: ("08:40", "09:30"),
+    4: ("09:45", "10:35"), 5: ("10:35", "11:25"), 7: ("13:00", "13:50"),
+    8: ("13:50", "14:40"), 9: ("14:40", "15:30"), 10: ("15:45", "16:35"), 11: ("16:35", "17:25"),
 }
 MORNING_LESSONS = [1, 2, 3, 4, 5]
 AFTERNOON_LESSONS = [7, 8, 9, 10, 11]
 
-SCOPES = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive",
-]
-
+SCOPES = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
 STAFF_COLUMNS = ["MSGV", "Họ và tên", "Đơn vị", "Bộ môn"]
 LOG_COLUMNS = ["Ngày", "MSGV", "Họ và tên", "Đơn vị", "Bộ môn", "CS", "Ca", "Tiết từ", "Tiết đến", "Số tiết", "Giờ bắt đầu phân công", "Giờ kết thúc phân công", "Vào muộn phút", "IN/OUT", "Giờ", "Timestamp"]
 
 LOCATIONS = {
-    "Cơ sở 1: 217 Hồng Bàng": {
-        "code": "CS1",
-        "lat": 10.754665,
-        "lon": 106.663381,
-        "radius": 100,
-        "address": "217 Hồng Bàng, Phường Chợ Lớn, TP.HCM",
-    },
-    "Cơ sở 2: 41-43 Đinh Tiên Hoàng": {
-        "code": "CS2",
-        "lat": 10.785434,
-        "lon": 106.702667,
-        "radius": 100,
-        "address": "41-43 Đinh Tiên Hoàng, Phường Sài Gòn, TP.HCM",
-    },
+    "Cơ sở 1: 217 Hồng Bàng": {"code": "CS1", "lat": 10.754665, "lon": 106.663381, "radius": 100},
+    "Cơ sở 2: 41-43 Đinh Tiên Hoàng": {"code": "CS2", "lat": 10.785434, "lon": 106.702667, "radius": 100}
 }
 LOCATION_BY_CODE = {v["code"]: k for k, v in LOCATIONS.items()}
 
-st.set_page_config(page_title="Hệ thống điểm danh tích hợp", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Hệ thống điểm danh tích hợp", layout="wide", initial_sidebar_state="pinned")
 
-# ===================== CSS ĐÃ SỬA FONT 16 VÀ RESPONSIVE =====================
-st.markdown("""
-<style>
-html, body, .stApp {
-    color: #000000 !important;
-    overflow-x: hidden !important;
-}
-.custom-title {
-    font-family: "Times New Roman", Times, serif;
-    font-size: 21px; 
-    font-weight: bold;
-    text-align: center;
-    margin-bottom: 15px;
-    color: #1E3A8A;
-}
-#MainMenu, footer, header,
-[data-testid="stToolbar"],
-[data-testid="stDecoration"],
-[data-testid="stStatusWidget"],
-.stDeployButton {
-    display: none !important;
-    visibility: hidden !important;
-}
-h1, h2, h3 {
-    font-weight: 900 !important;
-}
-label, p, span, div {
-    color: #000000 !important;
-}
-input {
-    font-weight: 700 !important;
-    color: #000000 !important;
-}
-.stButton > button, div[data-testid="stButton"] > button {
-    font-weight: 900 !important;
-    white-space: normal !important;
-    overflow: visible !important;
-    text-align: center !important;
-}
-@media (max-width: 768px) {
-    .block-container {
-        width: 100% !important;
-        max-width: 100% !important;
-        padding-top: 0.8rem !important;
-        padding-left: 0.85rem !important;
-        padding-right: 0.85rem !important;
-        padding-bottom: 8rem !important;
-        box-sizing: border-box !important;
-    }
-    input {
-        font-size: 1.05rem !important;
-        min-height: 3rem !important;
-    }
-    .stButton, .stButton > button, div[data-testid="stButton"], div[data-testid="stButton"] > button {
-        width: 100% !important;
-        max-width: 100% !important;
-        box-sizing: border-box !important;
-    }
-    .stButton > button, div[data-testid="stButton"] > button {
-        min-height: 3.4rem !important;
-        font-size: 1.05rem !important;
-        margin: .25rem 0 1rem 0 !important;
-    }
-}
-</style>
-<div class="custom-title">Hệ thống điểm danh</div>
-""", unsafe_allow_html=True)
+# ===================== CSS ĐỒNG BỘ GIAO DIỆN CHỮ TO RÕ =====================
+st.html(
+    """
+    <style>
+    html, body, .stApp { color: #000000 !important; font-size: 18px !important; }
+    .custom-title { font-family: "Times New Roman", Times, serif; font-size: 21px; font-weight: bold; text-align: center; margin-bottom: 15px; color: #1E3A8A; }
+    h1, h2, h3 { font-weight: 900 !important; color: #000000 !important; }
+    label, p, span, div { color: #000000 !important; }
+    input { font-weight: 700 !important; color: #000000 !important; }
+    .stButton > button { font-weight: 900 !important; min-height: 3.2rem !important; font-size: 1.05rem !important; }
+    div[data-testid="stRadio"] > div { flex-direction: row !important; justify-content: center !important; gap: 30px; }
+    </style>
+    <div class="custom-title">Hệ thống điểm danh</div>
+    """
+)
 
-
-# ===================== TIỆN ÍCH LOGIC TIẾT / GIỜ =====================
-def now_vn():
-    return datetime.datetime.now(VN_TZ)
-
-def today_date():
-    return now_vn().date()
-
-def today_str():
-    return today_date().strftime("%d/%m/%Y")
-
-def today_iso():
-    return today_date().strftime("%Y-%m-%d")
-
-def normalize_date_value(value):
-    s = str(value or "").strip()
-    if not s: return ""
-    m = re.match(r"^(\d{1,2})/(\d{1,2})/(\d{4})$", s)
-    if m:
-        d, mo, y = m.groups()
-        return f"{int(d):02d}/{int(mo):02d}/{y}"
-    m = re.match(r"^(\d{4})-(\d{1,2})-(\d{1,2})", s)
-    if m:
-        y, mo, d = m.groups()
-        return f"{int(d):02d}/{int(mo):02d}/{y}"
-    return s
-
-def parse_date_value(value):
-    s = normalize_date_value(value)
-    if not s: return None
-    try: return datetime.datetime.strptime(s, "%d/%m/%Y").date()
-    except Exception: return None
-
-def current_week_range():
-    today = today_date()
-    start = today - datetime.timedelta(days=today.weekday())
-    end = start + datetime.timedelta(days=6)
-    return start, end
-
-def current_month_range():
-    today = today_date()
-    start = today.replace(day=1)
-    if today.month == 12:
-        end = today.replace(year=today.year + 1, month=1, day=1) - datetime.timedelta(days=1)
-    else:
-        end = today.replace(month=today.month + 1, day=1) - datetime.timedelta(days=1)
-    return start, end
-
-def group_bo_mon_don_vi(row):
-    bo_mon = safe_str(row.get("Bộ môn"))
-    don_vi = safe_str(row.get("Đơn vị"))
-    return bo_mon if bo_mon else (don_vi if don_vi else "Chưa xác định")
-
-def log_sort_key(row):
-    ts = safe_str(row.get("Timestamp"))
-    if ts:
-        try: return datetime.datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
-        except Exception: pass
-    d = parse_date_value(row.get("Ngày")) or today_date()
-    t = parse_time_value(row.get("Giờ")) or datetime.time(0, 0, 0)
-    return datetime.datetime.combine(d, t)
-
-def latest_open_in_log(logs, shift):
-    ordered = sorted([r for r in logs if safe_str(r.get("Ca")) == shift], key=log_sort_key)
-    open_in = None
-    for r in ordered:
-        action = safe_str(r.get("IN/OUT")).upper()
-        if action == "IN": open_in = r
-        elif action == "OUT" and open_in is not None: open_in = None
-    return open_in
-
-def parse_time_value(value):
-    s = str(value or "").strip()
-    if not s: return None
-    m = re.search(r"(\d{1,2}:\d{2}:\d{2})", s)
-    if not m: return None
-    try: return datetime.datetime.strptime(m.group(1), "%H:%M:%S").time()
-    except Exception: return None
-
-def time_hhmm_to_time(s):
-    return datetime.datetime.strptime(str(s), "%H:%M").time()
-
-def time_hhmm_to_minutes(s):
-    t = time_hhmm_to_time(s)
-    return t.hour * 60 + t.minute
-
-def assigned_lessons_for_shift(shift):
-    return MORNING_LESSONS if shift == "Sáng" else AFTERNOON_LESSONS
-
-def lesson_range_info(shift, lesson_from, lesson_to):
-    allowed = assigned_lessons_for_shift(shift)
-    lesson_from, lesson_to = int(lesson_from), int(lesson_to)
-    if lesson_from not in allowed: lesson_from = allowed[0]
-    if lesson_to not in allowed: lesson_to = allowed[-1]
-    if lesson_to < lesson_from: lesson_to = lesson_from
-    selected = [x for x in allowed if lesson_from <= x <= lesson_to]
-    start_time = LESSON_SCHEDULE[selected[0]][0]
-    end_time = LESSON_SCHEDULE[selected[-1]][1]
-    return {
-        "lesson_from": selected[0], "lesson_to": selected[-1],
-        "num_lessons": len(selected), "start_time": start_time, "end_time": end_time,
-        "required_minutes": time_hhmm_to_minutes(end_time) - time_hhmm_to_minutes(start_time),
-    }
-
-def late_minutes_against_assigned_start(assigned_start):
-    start_t = time_hhmm_to_time(assigned_start)
-    start_dt = datetime.datetime.combine(today_date(), start_t, tzinfo=VN_TZ)
-    diff = int((now_vn() - start_dt).total_seconds() // 60)
-    return max(0, diff)
-
-def academic_year_range(ref_date=None):
-    if ref_date is None: ref_date = today_date()
-    start_year = ref_date.year if ref_date >= datetime.date(ref_date.year, 7, 1) else ref_date.year - 1
-    return datetime.date(start_year, 7, 1), datetime.date(start_year + 1, 8, 31)
-
-def time_str(): return now_vn().strftime("%H:%M:%S")
+# ===================== TIỆN ÍCH CHUNG =====================
+def now_vn(): return datetime.datetime.now(VN_TZ)
+def today_str(): return now_vn().strftime("%d/%m/%Y")
 def timestamp_str(): return now_vn().strftime("%Y-%m-%d %H:%M:%S")
 def infer_shift(): return "Sáng" if now_vn().hour < 12 else "Chiều"
-
-def get_query_params():
-    if hasattr(st, "query_params"): return dict(st.query_params)
-    raw = st.experimental_get_query_params()
-    return {k: (v[0] if isinstance(v, list) and v else v) for k, v in raw.items()}
-
+def safe_str(value): return str(value or "").strip()
+def norm_digits(value): return re.sub(r"\D", "", str(value or ""))
+def normalize_name(name: str): return " ".join(w.capitalize() for w in (name or "").strip().split())
 def strip_accents(s: str) -> str:
     s = unicodedata.normalize("NFD", str(s or ""))
     s = "".join(ch for ch in s if unicodedata.category(ch) != "Mn")
     return unicodedata.normalize("NFC", s)
-
 def norm_search(s: str) -> str: return " ".join(strip_accents(s).lower().split())
 def norm_header(s: str) -> str: return norm_search(s).replace(" ", "")
-def norm_sheet_name(name: str) -> str: return re.sub(r"\s+", "", str(name or "")).lower()
-def norm_digits(value) -> str: return re.sub(r"\D", "", str(value or ""))
-def safe_str(value) -> str: return str(value or "").strip()
+def attendance_flag(val) -> bool: return safe_str(val) != ""
 
 def _google_api_retry(callable_fn, retries=3, delay=1.2):
-    last_error = None
     for attempt in range(retries):
         try: return callable_fn()
-        except Exception as e:
-            last_error = e
-            if not any(code in str(e) for code in ["[500]", "[503]", "[429]", "Internal error", "Quota", "timeout"]): raise
+        except Exception:
+            if attempt == retries - 1: raise
             time.sleep(delay * (attempt + 1))
-    raise last_error
-
-def get_base_url():
-    return st.secrets.get("WRAPPER_URL") or st.secrets.get("APP_BASE_URL") or "https://giangvien.streamlit.app"
-
-def get_admin_pw():
-    return st.secrets.get("ADMIN_PASSWORD") or os.getenv("ADMIN_PASSWORD")
-
-def admin_unlocked(): return bool(st.session_state.get("admin_unlocked"))
-
-def render_admin_auth():
-    with st.sidebar:
-        st.header("Quản trị")
-        if admin_unlocked():
-            st.success("Đã đăng nhập quản trị")
-            if st.button("Đăng xuất"):
-                st.session_state.clear()
-                st.rerun()
-        else:
-            pw = st.text_input("Mật khẩu quản trị", type="password")
-            if st.button("Đăng nhập", type="primary", use_container_width=True):
-                if get_admin_pw() and pw == get_admin_pw():
-                    st.session_state["admin_unlocked"] = True
-                    st.rerun()
-                else: st.warning("Sai mật khẩu.")
 
 # ===================== KẾT NỐI GOOGLE SHEETS =====================
 @st.cache_resource
 def get_gspread_client():
     cred = dict(st.secrets["google_service_account"])
-    pk = cred.get("private_key", "").replace("\\n", "\n").replace("\r\n", "\n")
-    cred["private_key"] = pk
+    cred["private_key"] = cred.get("private_key", "").replace("\\n", "\n").replace("\r\n", "\n")
     creds = Credentials.from_service_account_info(cred, scopes=SCOPES)
     return gspread.authorize(creds)
 
 def get_spreadsheet(sheet_key):
     return _google_api_retry(lambda: get_gspread_client().open_by_key(sheet_key))
 
-def get_or_create_ws(sheet_key, title, rows=1000, cols=20):
+def get_ws_by_title(sheet_key, title, is_log=False):
     ss = get_spreadsheet(sheet_key)
-    wanted = norm_sheet_name(title)
+    wanted = norm_search(title).replace(" ", "")
     for ws in _google_api_retry(lambda: ss.worksheets()):
-        if norm_sheet_name(ws.title) == wanted: return ws
-    return _google_api_retry(lambda: ss.add_worksheet(title=title, rows=rows, cols=cols))
+        if norm_search(ws.title).replace(" ", "") == wanted: return ws
+    if is_log:
+        return _google_api_retry(lambda: ss.add_worksheet(title=title, rows=5000, cols=16))
+    return _google_api_retry(lambda: ss.sheet1)
 
 def ensure_header(ws, headers):
     current = _google_api_retry(lambda: ws.row_values(1))
-    if not current:
-        _google_api_retry(lambda: ws.update("A1", [headers]))
-        return headers
-    merged = current[:]
-    changed = False
-    for h in headers:
-        if h not in merged: merged.append(h); changed = True
-    if changed: _google_api_retry(lambda: ws.update("1:1", [merged]))
-    return _google_api_retry(lambda: ws.row_values(1))
+    if not current: _google_api_retry(lambda: ws.update("A1", [headers]))
 
-def staff_ws(sheet_key):
-    ws = get_or_create_ws(sheet_key, STAFF_SHEET_NAME, rows=300, cols=10)
-    ensure_header(ws, STAFF_COLUMNS)
-    return ws
-
-def log_ws(sheet_key):
-    ws = get_or_create_ws(sheet_key, LOG_SHEET_NAME, rows=5000, cols=12)
-    ensure_header(ws, LOG_COLUMNS)
-    return ws
-
-def get_all_records_by_header(ws):
-    values = _google_api_retry(lambda: ws.get_all_values())
-    if not values: return []
-    headers = values[0]
-    out = []
-    for row in values[1:]:
-        item = {h: (row[i] if i < len(row) else "") for i, h in enumerate(headers)}
-        if any(str(v).strip() for v in item.values()): out.append(item)
-    return out
-
-def find_user_by_code(sheet_key, code_input, label_type):
-    ws = staff_ws(sheet_key)
+# ===================== LOGIC ĐIỂM DANH DÙNG CHUNG GẮN VỚI GPS VÀ TIẾT HỌC =====================
+def find_user_by_code(sheet_key, code_input):
+    ws = get_ws_by_title(sheet_key, STAFF_SHEET_NAME)
     values = _google_api_retry(lambda: ws.get_all_values())
     if not values or len(values) < 2: return None
-
-    headers, target = values[0], norm_digits(code_input)
+    headers = values[0]
     hn = [norm_header(h) for h in headers]
     
     msgv_i = hn.index("msgv") if "msgv" in hn else 0
     name_i = hn.index("hovaten") if "hovaten" in hn else 1
     unit_i = hn.index("donvi") if "donvi" in hn else 2
     dept_i = hn.index("bomon") if "bomon" in hn else 3
-
+    
+    target = norm_digits(code_input)
     matches = []
     for row in values[1:]:
         raw_digits = norm_digits(row[msgv_i] if msgv_i < len(row) else "")
         if not raw_digits: continue
         if (len(target) == 4 and raw_digits.endswith(target)) or raw_digits == target:
             matches.append({
-                "MSGV": raw_digits.zfill(8) if len(raw_digits) <= 8 else raw_digits,
+                "MÃ": raw_digits.zfill(8) if len(raw_digits) <= 8 else raw_digits,
                 "Họ và tên": row[name_i] if name_i < len(row) else "",
                 "Đơn vị": row[unit_i] if unit_i < len(row) else "",
                 "Bộ môn": row[dept_i] if dept_i < len(row) else "",
@@ -399,331 +152,187 @@ def find_user_by_code(sheet_key, code_input, label_type):
     if len(matches) > 1: return {"ambiguous": True, "matches": matches}
     return None
 
-def logs_for_user_today(sheet_key, code_full):
-    target, result = norm_digits(code_full), []
-    for r in get_all_records_by_header(log_ws(sheet_key)):
-        row_date = normalize_date_value(r.get("Ngày"))
-        row_msgv = norm_digits(r.get("MSGV"))
-        if row_msgv and row_date == today_str() and (row_msgv == target or row_msgv.zfill(len(target)) == target):
-            result.append(r)
-    return result
+def lesson_range_info(shift, lesson_from, lesson_to):
+    allowed = MORNING_LESSONS if shift == "Sáng" else AFTERNOON_LESSONS
+    lf, lt = int(lesson_from), int(lesson_to)
+    if lf not in allowed: lf = allowed[0]
+    if lt not in allowed: lt = allowed[-1]
+    if lt < lf: lt = lf
+    selected = [x for x in allowed if lf <= x <= lt]
+    return {
+        "lesson_from": selected[0], "lesson_to": selected[-1], "num_lessons": len(selected),
+        "start_time": LESSON_SCHEDULE[selected[0]][0], "end_time": LESSON_SCHEDULE[selected[-1]][1]
+    }
 
-def append_log(sheet_key, row):
-    ws = log_ws(sheet_key)
-    headers = ensure_header(ws, LOG_COLUMNS)
-    values = [row.get(h, "") for h in headers]
-    for attempt in range(5):
-        try: return ws.append_row(values, value_input_option="USER_ENTERED")
-        except Exception: time.sleep(0.7 * (attempt + 1))
-
-def summarize_hours(records):
-    if not records: return pd.DataFrame()
-    df = pd.DataFrame(records)
-    for c in LOG_COLUMNS:
-        if c not in df.columns: df[c] = ""
-    rows = []
-    for keys, g in df.groupby(["Ngày", "MSGV", "Họ và tên", "Đơn vị", "Bộ môn", "Ca"], dropna=False):
-        ngay, msgv, hoten, donvi, bomon, ca = keys
-        ins = g[g["IN/OUT"] == "IN"]["Giờ"].tolist()
-        outs = g[g["IN/OUT"] == "OUT"]["Giờ"].tolist()
-        vao, ra = min(ins) if ins else "", max(outs) if outs else ""
-        hours = ""
-        if vao and ra:
-            try:
-                sec = (datetime.datetime.strptime(ra, "%H:%M:%S") - datetime.datetime.strptime(vao, "%H:%M:%S")).total_seconds()
-                hours = round(sec / 3600, 2) if sec >= 0 else ""
-            except Exception: pass
-        rows.append({
-            "Ngày": ngay, "MSGV": msgv, "Họ và tên": hoten, "Đơn vị": donvi, "Bộ môn": bomon, "Ca": ca,
-            "Vào ca": vao, "Ra ca": ra, "Giờ có mặt": hours, "Cơ sở": ", ".join(sorted(set(g["CS"].astype(str)))),
-        })
-    return pd.DataFrame(rows)
-
-# ===================== GPS VERIFICATION =====================
 def render_location_check(campus_code):
-    campus_name = LOCATION_BY_CODE.get(campus_code)
-    if not campus_name:
-        st.error("Cơ sở điểm danh không hợp lệ.")
-        st.stop()
+    campus_name = LOCATION_BY_CODE.get(campus_code, "Cơ sở 1: 217 Hồng Bàng")
     campus = LOCATIONS[campus_name]
-    st.info(f"Cơ sở: {campus_name}")
+    st.info(f"📍 Vị trí yêu cầu: {campus_name}")
     if streamlit_geolocation is None or geodesic is None:
-        st.error("Ứng dụng chưa cài đủ thư viện kiểm tra vị trí.")
+        st.error("Ứng dụng thiếu thư viện GPS.")
         st.stop()
-    st.caption("Cho phép truy cập vị trí để xác thực điểm danh.")
     loc = streamlit_geolocation()
     if not loc:
-        st.warning("Chưa nhận được vị trí. Vui lòng bật định vị và cho phép truy cập vị trí.")
+        st.warning("Đang kết nối vệ tinh GPS... Vui lòng đồng ý cấp quyền truy cập vị trí trên trình duyệt.")
         st.stop()
     lat, lon = loc.get("latitude"), loc.get("longitude")
     if lat is None or lon is None:
-        st.warning("Không lấy được tọa độ GPS từ thiết bị. Vui lòng thử lại.")
+        st.warning("Thiết bị chưa phản hồi tọa độ. Vui lòng thử lại.")
         st.stop()
     distance = geodesic((float(lat), float(lon)), (campus["lat"], campus["lon"])).meters
     if distance > campus["radius"]:
-        st.error(f"Bạn đang ngoài phạm vi điểm danh của {campus_name}.")
+        st.error(f"❌ Ngoài bán kính cho phép! Khoảng cách hiện tại: {round(distance,1)}m (> {campus['radius']}m)")
         st.stop()
-    st.success("Vị trí hợp lệ. Có thể tiếp tục điểm danh.")
+    st.success("✅ Vị trí hợp lệ. Đã xác thực trong phạm vi trường học.")
 
-# ===================== GIAO DIỆN ĐIỂM DANH (GV & SV) =====================
-def render_user_attendance(user_type, sheet_key):
-    qp = get_query_params()
+# ===================== LUỒNG ĐIỂM DANH ĐỒNG BỘ DÙNG CHUNG CHO CẢ GV VÀ SV =====================
+def render_attendance_flow(user_type, sheet_key):
+    qp = {k: v[0] if isinstance(v, list) else v for k, v in st.experimental_get_query_params().items()}
     campus_code = qp.get("coso", "CS1")
     
-    st.subheader(f"Phân hệ Điểm danh {user_type}")
-    if today_date().weekday() == 6:
-        st.error("Chủ nhật không mở điểm danh.")
+    st.title(f"Hệ thống điểm danh {user_type}")
+    if now_vn().date().weekday() == 6:
+        st.error("Hệ thống đóng cửa vào ngày Chủ Nhật.")
         st.stop()
-
-    st.info(f"Ngày: {today_str()}")
+        
     render_location_check(campus_code)
-
     shift = infer_shift()
-    st.info(f"Ca hiện tại: {shift}")
-
-    action_label = st.radio("Chọn loại điểm danh", ["Vào ca", "Ra ca"], horizontal=True, key=f"act_{user_type}")
-    action = "IN" if action_label == "Vào ca" else "OUT"
-
-    lessons_allowed = assigned_lessons_for_shift(shift)
-    col_from, col_to = st.columns(2)
-    with col_from:
-        tiet_tu = st.number_input("Tiết dạy từ", min_value=min(lessons_allowed), max_value=max(lessons_allowed), value=min(lessons_allowed), step=1, key=f"f_{user_type}")
-    with col_to:
-        tiet_den = st.number_input("Đến tiết", min_value=min(lessons_allowed), max_value=max(lessons_allowed), value=min(lessons_allowed), step=1, key=f"t_{user_type}")
-
+    st.info(f"Khung buổi hiện tại: Ca {shift}")
+    
+    action_label = st.radio("Chọn nghiệp vụ điểm danh", ["Vào ca (Check-in)", "Ra ca (Check-out)"], horizontal=True, key=f"act_{user_type}")
+    action = "IN" if "Vào" in action_label else "OUT"
+    
+    allowed = MORNING_LESSONS if shift == "Sáng" else AFTERNOON_LESSONS
+    c1, c2 = st.columns(2)
+    with c1: tiet_tu = st.number_input("Tiết bắt đầu", min_value=min(allowed), max_value=max(allowed), value=min(allowed), key=f"f_{user_type}")
+    with c2: tiet_den = st.number_input("Tiết kết thúc", min_value=min(allowed), max_value=max(allowed), value=max(allowed), key=f"t_{user_type}")
+    
     info_tiet = lesson_range_info(shift, tiet_tu, tiet_den)
-    st.caption(f"Phân công: tiết {info_tiet['lesson_from']} đến tiết {info_tiet['lesson_to']} ({info_tiet['num_lessons']} tiết), từ {info_tiet['start_time']} đến {info_tiet['end_time']}.")
-
-    label_input = "4 số cuối MSGV" if user_type == "GV" else "4 số cuối MSSV"
-    msgv_suffix = st.text_input(label_input, placeholder="VD: 1234", max_chars=4, key=f"inp_{user_type}")
-
-    if st.button("Xác nhận điểm danh", type="primary", use_container_width=True, key=f"btn_{user_type}"):
-        if not msgv_suffix.strip().isdigit() or len(msgv_suffix.strip()) != 4:
-            st.warning(f"Vui lòng nhập đúng 4 số cuối Mã định danh.")
+    st.caption(f"Khung thời gian chuẩn: Tiết {info_tiet['lesson_from']} -> {info_tiet['lesson_to']} ({info_tiet['start_time']} - {info_tiet['end_time']}) | Tổng: {info_tiet['num_lessons']} tiết")
+    
+    label_text = f"Nhập 4 số cuối của MSGV" if user_type == "GV" else f"Nhập 4 số cuối của MSSV"
+    code_suffix = st.text_input(label_text, max_chars=4, placeholder="Ví dụ: 1234", key=f"code_{user_type}")
+    
+    if st.button("Xác nhận ghi nhận lên hệ thống", type="primary", use_container_width=True, key=f"btn_{user_type}"):
+        if len(code_suffix.strip()) != 4 or not code_suffix.isdigit():
+            st.warning("Yêu cầu nhập chính xác 4 chữ số cuối mã số định danh.")
             st.stop()
+            
+        user_info = find_user_by_code(sheet_key, code_suffix)
+        if not user_info: st.error(f"Không tìm thấy thông tin {user_type} tương ứng."); st.stop()
+        if user_info.get("ambiguous"): st.error("Mã số cuối bị trùng lặp trên hệ thống danh sách, vui lòng báo Giáo vụ."); st.stop()
+        
+        user_code_full = user_info["MÃ"]
+        lw = get_ws_by_title(sheet_key, LOG_SHEET_NAME, is_log=True)
+        ensure_header(lw, LOG_COLUMNS)
+        
+        # Thuật toán tính số phút đi muộn so với mốc phân công
+        start_t = datetime.datetime.strptime(info_tiet["start_time"], "%H:%M").time()
+        start_dt = datetime.datetime.combine(now_vn().date(), start_t, tzinfo=VN_TZ)
+        late_min = max(0, int((now_vn() - start_dt).total_seconds() // 60)) if action == "IN" else 0
+        
+        # Thực hiện đồng bộ append bản ghi
+        _google_api_retry(lambda: lw.append_row([
+            today_str(), user_code_full, user_info["Họ và tên"], user_info["Đơn vị"], user_info["Bộ môn"],
+            campus_code, shift, info_tiet["lesson_from"], info_tiet["lesson_to"], info_tiet["num_lessons"],
+            info_tiet["start_time"], info_tiet["end_time"], late_min if action == "IN" else "", action,
+            now_vn().strftime("%H:%M:%S"), timestamp_str()
+        ], value_input_option="USER_ENTERED"))
+        
+        st.success(f"🎉 Điểm danh {action_label} THÀNH CÔNG! {user_type}: {user_info['Họ và tên']} ({user_code_full})")
 
-        msgv_full = msgv_suffix.strip()
-        staff = find_user_by_code(sheet_key, msgv_full, user_type)
+# ===================== MÀN HÌNH QUẢN TRỊ TRUNG TÂM TÍCH HỢP CHUNG =====================
+def get_base_url():
+    return st.secrets.get("WRAPPER_URL") or st.secrets.get("APP_BASE_URL") or "https://giangvien.streamlit.app"
 
-        if not staff:
-            st.error(f"Không tìm thấy dữ liệu có 4 số cuối {msgv_full}.")
-            st.stop()
-        if staff.get("ambiguous"):
-            st.error("Mã số bị trùng với nhiều người dùng. Vui lòng liên hệ quản trị.")
-            st.stop()
-
-        msgv_full = staff.get("MSGV", msgv_full)
-        current_logs = logs_for_user_today(sheet_key, msgv_full)
-        open_in = latest_open_in_log(current_logs, shift)
-
-        if action == "IN":
-            session_key = f"open_{today_str()}_{msgv_full}_{shift}_{user_type}"
-            if st.session_state.get(session_key) or open_in is not None:
-                st.info(f"Mã số {msgv_full} đã vào ca {shift} và chưa ra ca.")
-                st.stop()
-            late_min = late_minutes_against_assigned_start(info_tiet["start_time"])
-            if late_min > 0:
-                st.warning(f"Bạn vào ca muộn {late_min} phút so với giờ phân công.")
-
-        if action == "OUT":
-            session_key = f"close_{today_str()}_{msgv_full}_{shift}_{len(current_logs)}_{user_type}"
-            if st.session_state.get(session_key):
-                st.info(f"Mã số {msgv_full} đã ra ca {shift}. Hệ thống không ghi trùng.")
-                st.stop()
-            if open_in is None:
-                st.warning(f"Chưa có dữ liệu vào ca buổi {shift}. Vui lòng điểm danh vào trước.")
-                st.stop()
-
-            assigned_end = safe_str(open_in.get("Giờ kết thúc phân công")) or info_tiet["end_time"]
-            if (now_vn().hour * 60 + now_vn().minute) < time_hhmm_to_minutes(assigned_end):
-                st.warning(f"Chưa đến thời điểm ra ca theo tiết được phân công (Kết thúc lúc: {assigned_end}).")
-                st.stop()
-
-        t = time_str()
-        append_log(sheet_key, {
-            "Ngày": today_str(), "MSGV": msgv_full, "Họ và tên": staff.get("Họ và tên", ""),
-            "Đơn vị": staff.get("Đơn vị", ""), "Bộ môn": staff.get("Bộ môn", ""), "CS": campus_code, "Ca": shift,
-            "Tiết từ": info_tiet["lesson_from"], "Tiết đến": info_tiet["lesson_to"], "Số tiết": info_tiet["num_lessons"],
-            "Giờ bắt đầu phân công": info_tiet["start_time"], "Giờ kết thúc phân công": info_tiet["end_time"],
-            "Vào muộn phút": late_minutes_against_assigned_start(info_tiet["start_time"]) if action == "IN" else "",
-            "IN/OUT": action, "Giờ": t, "Timestamp": timestamp_str(),
-        })
-
-        if action == "IN": st.session_state[f"open_{today_str()}_{msgv_full}_{shift}_{user_type}"] = True
+def render_admin_dashboard_flow():
+    with st.sidebar:
+        st.header("🔒 Đăng nhập hệ thống")
+        if st.session_state.get("admin_logged"):
+            st.success("Hệ thống đã mở khóa")
+            if st.button("Đăng xuất khỏi Admin"): st.session_state.clear(); st.rerun()
         else:
-            st.session_state[f"open_{today_str()}_{msgv_full}_{shift}_{user_type}"] = False
-            st.session_state[session_key] = True
-
-        st.success(f"{action_label} thành công!")
-        st.write(f"Mã số: **{msgv_full}** | Đối tượng: **{user_type}** | Giờ: **{t}**")
-
-# ===================== CÁC TAB QUẢN TRỊ GỐC CỦA THẦY =====================
-def render_tab_qr():
-    st.subheader("Tạo QR cố định theo cơ sở")
-    target_type = st.radio("Tạo QR cho đối tượng:", ["Giảng viên", "Sinh viên"], horizontal=True)
-    param_type = "gv=1" if target_type == "Giảng viên" else "sv=1"
-    
-    campus_name = st.selectbox("Chọn cơ sở", list(LOCATIONS.keys()))
-    campus_code = LOCATIONS[campus_name]["code"]
-
-    if st.button("Tạo QR cố định", type="primary", use_container_width=True):
-        qr_data = f"{get_base_url()}/?{param_type}&coso={urllib.parse.quote(campus_code)}"
-        qr = qrcode.make(qr_data)
-        buf = io.BytesIO()
-        qr.save(buf, format="PNG")
-        buf.seek(0)
-        st.image(Image.open(buf), caption=f"QR {target_type} tại {campus_code}", width=380)
-        st.code(qr_data)
-
-def render_tab_search(sheet_key):
-    st.subheader("Tìm kiếm thông tin")
-    q = st.text_input("Nhập 4 số cuối, đầy đủ mã số hoặc họ tên")
-    if st.button("Tìm kiếm", use_container_width=True):
-        rows = get_all_records_by_header(staff_ws(sheet_key))
-        if q.isdigit():
-            rows = [r for r in rows if norm_digits(r.get("MSGV")).endswith(q) or norm_digits(r.get("MSGV")) == q]
-        else:
-            rows = [r for r in rows if norm_search(q) in norm_search(r.get("Họ và tên"))]
-        if rows: st.dataframe(pd.DataFrame(rows), use_container_width=True)
-        else: st.warning("Không tìm thấy kết quả phù hợp.")
-
-def prepare_log_dataframe(sheet_key):
-    logs = get_all_records_by_header(log_ws(sheet_key))
-    if not logs: return pd.DataFrame()
-    df = pd.DataFrame(logs)
-    for c in LOG_COLUMNS:
-        if c not in df.columns: df[c] = ""
-    df["Ngày_chuẩn"] = df["Ngày"].apply(normalize_date_value)
-    df["Ngày_dt"] = df["Ngày"].apply(parse_date_value)
-    df["Bộ môn - Đơn vị"] = df.apply(group_bo_mon_don_vi, axis=1)
-    df["Vào muộn phút"] = pd.to_numeric(df["Vào muộn phút"], errors="coerce").fillna(0)
-    df["Số tiết"] = pd.to_numeric(df["Số tiết"], errors="coerce").fillna(0)
-    return df
-
-def current_period_filter(df, mode, selected_date=None):
-    if mode == "Theo ngày":
-        valid_dates = sorted([d for d in df["Ngày_chuẩn"].dropna().astype(str).unique() if d])
-        if selected_date is None:
-            selected_date = today_str() if today_str() in valid_dates else (valid_dates[-1] if valid_dates else today_str())
-        return df[df["Ngày_chuẩn"] == selected_date].copy(), f"ngày {selected_date}"
-    if mode == "Theo tuần hiện hành":
-        start, end = current_week_range()
-        return df[(df["Ngày_dt"] >= start) & (df["Ngày_dt"] <= end)].copy(), f"tuần ({start.strftime('%d/%m/%Y')} - {end.strftime('%d/%m/%Y')})"
-    if mode == "Theo tháng hiện hành":
-        start, end = current_month_range()
-        return df[(df["Ngày_dt"] >= start) & (df["Ngày_dt"] <= end)].copy(), f"tháng hiện hành ({start.strftime('%m/%Y')})"
-    start, end = academic_year_range()
-    return df[(df["Ngày_dt"] >= start) & (df["Ngày_dt"] <= end)].copy(), f"năm học ({start.strftime('%d/%m/%Y')} - {end.strftime('%d/%m/%Y')})"
-
-def compute_dashboard(filtered):
-    if filtered.empty: return {"Tổng GV có log": 0, "Đang trong ca": 0, "Đã ra ca": 0, "Vào muộn > 15 phút": 0, "Tổng tiết phân công": 0}
-    total_gv = filtered["MSGV"].nunique()
-    out_count = int((filtered["IN/OUT"].astype(str).str.upper() == "OUT").sum())
-    in_df = filtered[filtered["IN/OUT"].astype(str).str.upper() == "IN"].copy()
-    late_count = int((pd.to_numeric(in_df.get("Vào muộn phút", pd.Series(dtype=float)), errors="coerce").fillna(0) > LATE_THRESHOLD_MINUTES).sum())
-    total_lessons = int(pd.to_numeric(in_df.get("Số tiết", pd.Series(dtype=float)), errors="coerce").fillna(0).sum())
-    open_count = 0
-    for (msgv, ca), g in filtered.groupby(["MSGV", "Ca"], dropna=False):
-        if (g["IN/OUT"].astype(str).str.upper() == "IN").sum() > (g["IN/OUT"].astype(str).str.upper() == "OUT").sum(): open_count += 1
-    return {"Tổng GV có log": int(total_gv), "Đang trong ca": int(open_count), "Đã ra ca": out_count, "Vào muộn > 15 phút": late_count, "Tổng tiết phân công": total_lessons}
-
-def build_violation_report(summary):
-    rows = []
-    if summary is None or summary.empty: return pd.DataFrame()
-    for _, r in summary.iterrows():
-        row = r.to_dict()
-        late = float(pd.to_numeric(pd.Series([r.get("Vào muộn phút", 0)]), errors="coerce").fillna(0).iloc[0])
-        if not safe_str(r.get("Vào ca")): rows.append({**row, "Loại vi phạm": "Không vào ca"})
-        if safe_str(r.get("Vào ca")) and not safe_str(r.get("Ra ca")): rows.append({**row, "Loại vi phạm": "Không ra ca"})
-        if late > LATE_THRESHOLD_MINUTES: rows.append({**row, "Loại vi phạm": f"Vào ca muộn > {LATE_THRESHOLD_MINUTES} phút"})
-    return pd.DataFrame(rows)
-
-def render_tab_stats(sheet_key, data_label):
-    st.subheader(f"Thống kê điểm danh - {data_label}")
-    df = prepare_log_dataframe(sheet_key)
-    if df.empty: st.info("Chưa có dữ liệu."); return
-    mode = st.radio(f"Chọn phạm vi thống kê ({data_label})", ["Theo ngày", "Theo tuần hiện hành", "Theo tháng hiện hành", "Theo năm học hiện hành"], horizontal=True, key=f"mode_st_{data_label}")
-    selected = None
-    if mode == "Theo ngày":
-        valid_dates = sorted([d for d in df["Ngày_chuẩn"].dropna().astype(str).unique() if d])
-        default_idx = valid_dates.index(today_str()) if today_str() in valid_dates else len(valid_dates) - 1
-        selected = st.selectbox("Chọn ngày thống kê", valid_dates, index=default_idx if valid_dates else 0, key=f"sel_date_{data_label}")
-    
-    filtered, title_scope = current_period_filter(df, mode, selected)
-    dash = compute_dashboard(filtered)
-    
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("Tổng Số Người", dash["Tổng GV có log"])
-    c2.metric("Đang trong ca", dash["Đang trong ca"])
-    c3.metric("Đã ra ca", dash["Đã ra ca"])
-    c4.metric("Vào muộn", dash["Vào muộn > 15 phút"])
-    c5.metric("Tổng tiết", dash["Tổng tiết phân công"])
-
-    if not filtered.empty:
-        st.dataframe(filtered.drop(columns=["Ngày_dt"], errors="ignore"), use_container_width=True)
-        summary = summarize_hours(filtered.to_dict("records"))
-        if not summary.empty:
-            summary["Bộ môn - Đơn vị"] = summary.apply(group_bo_mon_don_vi, axis=1)
-            st.subheader("Bảng tổng hợp chi tiết")
-            st.dataframe(summary, use_container_width=True)
-
-def render_tab_dashboard(sheet_key, data_label):
-    st.subheader(f"Dashboard tổng hợp - {data_label}")
-    df = prepare_log_dataframe(sheet_key)
-    if df.empty: st.info("Chưa có dữ liệu điểm danh."); return
-    mode = st.radio("Phạm vi dashboard", ["Theo ngày", "Theo tuần hiện hành", "Theo tháng hiện hành", "Theo năm học hiện hành"], horizontal=True, key=f"dash_mode_{data_label}")
-    selected = None
-    if mode == "Theo ngày":
-        valid_dates = sorted([d for d in df["Ngày_chuẩn"].dropna().astype(str).unique() if d])
-        default_idx = valid_dates.index(today_str()) if today_str() in valid_dates else len(valid_dates) - 1
-        selected = st.selectbox("Chọn ngày hiển thị", valid_dates, index=default_idx if valid_dates else 0, key=f"dash_date_{data_label}")
-    
-    filtered, title_scope = current_period_filter(df, mode, selected)
-    if not filtered.empty:
-        dept = filtered.groupby("Bộ môn - Đơn vị", dropna=False).size().reset_index(name="Số lượt log")
-        chart = alt.Chart(dept).mark_bar().encode(x=alt.X("Bộ môn - Đơn vị:N", sort="-y"), y="Số lượt log:Q", color="Bộ môn - Đơn vị:N").properties(height=340)
-        st.altair_chart(chart, use_container_width=True)
-
-# ===================== ĐIỀU HƯỚNG VÀ PHÂN LUỒNG CHÍNH =====================
-qp = get_query_params()
-
-# LUỒNG 1: QUÉT MÃ QR GIẢNG VIÊN (?gv=1)
-if qp.get("gv") == "1":
-    render_user_attendance("GV", GV_SHEET_KEY)
-    st.stop()
-
-# LUỒNG 2: QUÉT MÃ QR SINH VIÊN (?sv=1)
-elif qp.get("sv") == "1":
-    render_user_attendance("SV", SV_SHEET_KEY)
-    st.stop()
-
-# LUỒNG 3: TRANG QUẢN TRỊ TRUNG TÂM (KHÔNG THAM SỐ)
-else:
-    render_admin_auth()
-    st.title("Hệ thống quản lý điểm danh QR tích hợp")
-
-    if not admin_unlocked():
-        st.error("Vui lòng đăng nhập quản trị ở thanh điều hướng bên trái để sử dụng hệ thống.")
+            pw = st.text_input("Mật khẩu quản trị", type="password")
+            if st.button("Xác thực Đăng nhập", type="primary", use_container_width=True):
+                if pw == st.secrets.get("ADMIN_PASSWORD", "admin"):
+                    st.session_state["admin_logged"] = True
+                    st.rerun()
+                else: st.error("Mật khẩu không hợp lệ.")
+                
+    if not st.session_state.get("admin_logged"):
+        st.error("Vui lòng nhập mật khẩu quản trị ở thanh công cụ bên trái để truy cập dữ liệu tổng hợp.")
         st.stop()
-
+        
     with st.sidebar:
         st.markdown("---")
-        st.markdown("**Phân hệ quản lý**")
-        target_view = st.selectbox("Đối tượng xem báo cáo:", ["Giảng viên", "Sinh viên"])
-        active_sheet_key = GV_SHEET_KEY if target_view == "Giảng viên" else "SV_SHEET_KEY"
+        st.markdown("**Báo cáo dữ liệu động**")
+        # Điểm mấu chốt: Cho phép Admin chọn đối tượng cần cấu hình hoặc xem thống kê
+        target_view = st.selectbox("Chọn phân hệ đối tượng:", ["Giảng viên", "Sinh viên"])
         active_sheet_key = GV_SHEET_KEY if target_view == "Giảng viên" else SV_SHEET_KEY
+        param_flag = "gv=1" if target_view == "Giảng viên" else "sv=1"
+        
+        menu = st.radio("Mục quản lý:", ["Tạo QR cố định điểm danh", "Tra cứu thông tin", "Báo cáo thống kê tổng hợp"])
+        
+    # Chức năng 1: Tạo QR tĩnh theo Cơ sở cho đối tượng đang chọn
+    if menu == "Tạo QR cố định điểm danh":
+        st.subheader(f"Tạo mã QR phân hệ: {target_view}")
+        campus_name = st.selectbox("Chọn vị trí cơ sở trường học", list(LOCATIONS.keys()))
+        campus_code = LOCATIONS[campus_name]["code"]
+        
+        if st.button("Khởi tạo mã QR Code", type="primary", use_container_width=True):
+            qr_data = f"{get_base_url()}/?{param_flag}&coso={urllib.parse.quote(campus_code)}"
+            qr = qrcode.make(qr_data)
+            buf = io.BytesIO(); qr.save(buf, format="PNG"); buf.seek(0)
+            st.image(Image.open(buf), caption=f"Mã QR cố định ({target_view}) tại {campus_code}", width=360)
+            st.code(qr_data)
+            
+    # Chức năng 2: Tra cứu thông tin danh sách
+    elif menu == "Tra cứu thông tin":
+        st.subheader(f"Tìm kiếm thông tin dữ liệu {target_view}")
+        q = st.text_input("Nhập mã số (hoặc 4 số cuối) hoặc họ tên cần tra cứu:")
+        if st.button("Thực hiện tìm kiếm", use_container_width=True):
+            ws = get_ws_by_title(active_sheet_key, STAFF_SHEET_NAME)
+            rows = _google_api_retry(lambda: ws.get_all_records(default_blank=""))
+            res = [r for r in rows if q in safe_str(r.get("MSGV")) or norm_search(q) in norm_search(r.get("Họ và tên"))]
+            if res: st.dataframe(pd.DataFrame(res), use_container_width=True)
+            else: st.warning("Không tìm thấy kết quả phù hợp với từ khóa.")
+            
+    # Chức năng 3: Xem báo cáo bảng Log chi tiết
+    elif menu == "Báo cáo thống kê tổng hợp":
+        st.subheader(f"Bảng nhật ký lịch sử điểm danh (Log) - {target_view}")
+        ws = get_ws_by_title(active_sheet_key, LOG_SHEET_NAME, is_log=True)
+        data = _google_api_retry(lambda: ws.get_all_records(default_blank=""))
+        if data:
+            df = pd.DataFrame(data)
+            st.dataframe(df, use_container_width=True)
+            
+            # Vẽ biểu đồ tương tác nhanh số lượt log theo Ca học
+            if "Ca" in df.columns:
+                st.markdown("**Biểu đồ phân bố lượt điểm danh theo ca (Sáng/Chiều):**")
+                chart_df = df.groupby("Ca").size().reset_index(name="Số lượt")
+                chart = alt.Chart(chart_df).mark_bar().encode(x="Ca:N", y="Số lượt:Q", color="Ca:N").properties(height=300)
+                st.altair_chart(chart, use_container_width=True)
+        else:
+            st.info(f"Hệ thống file dữ liệu Log của phân hệ {target_view} hiện tại trống.")
 
-        menu = st.radio(
-            "Chọn mục thống kê",
-            ["Tạo QR cố định", "Dashboard tổng hợp", "Tìm kiếm thông tin", "Thống kê điểm danh"],
-            index=0
-        )
+# ===================== ĐIỀU HƯỚNG VÀ PHÂN LUỒNG URL CHÍNH (ROUTING) =====================
+params = {k: v[0] if isinstance(v, list) and v else v for k, v in st.experimental_get_query_params().items()}
 
-    if menu == "Tạo QR cố định":
-        render_tab_qr()
-    elif menu == "Dashboard tổng hợp":
-        render_tab_dashboard(active_sheet_key, target_view)
-    elif menu == "Tìm kiếm thông tin":
-        render_tab_search(active_sheet_key)
-    elif menu == "Thống kê điểm danh":
-        render_tab_stats(active_sheet_key, target_view)
+if params.get("gv") == "1":
+    render_attendance_flow("GV", GV_SHEET_KEY)
+elif params.get("sv") == "1":
+    render_attendance_flow("SV", SV_SHEET_KEY)
+else:
+    render_admin_dashboard_flow()
+
+# ===================== CHÂN TRANG BẢN QUYỀN ĐỒNG BỘ =====================
+st.markdown(
+    """
+    <style>
+    .footer-dhn { position: fixed; left: 0; right: 0; bottom: 0; padding: 6px; background: #F3F4F6; 
+                 color: #374151; font-size: 13px; text-align: center; z-index: 9999; border-top: 1px solid #E5E7EB; }
+    </style>
+    <div class="footer-dhn">Copyright © 2026 Bản quyền thuộc về <strong>TS. Đào Hồng Nam - Đại học Y Dược Thành phố Hồ Chí Minh</strong></div>
+    """,
+    unsafe_allow_html=True
+)
