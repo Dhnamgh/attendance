@@ -2,5 +2,4 @@ streamlit
 pandas
 gspread
 google-auth
-qrcode[pil]
-pillow
+streamlit-geolocation
