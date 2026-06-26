@@ -29,8 +29,9 @@ except Exception:
 
 st.set_page_config(layout="centered")
 
-# ===================== TÙY CHỈNH GIAO DIỆN (FONT 16 & HÀNG NGANG) =====================
-st.markdown(
+# ===================== TÙY CHỈNH GIAO DIỆN CHUẨN MỚI =====================
+# Sử dụng st.html để nhúng CSS an toàn, không lo lỗi TypeError trên mọi phiên bản Streamlit
+st.html(
     """
     <style>
     .custom-title {
@@ -52,8 +53,7 @@ st.markdown(
     }
     </style>
     <div class="custom-title">Hệ thống điểm danh tích hợp</div>
-    """,
-    unsafe_html=True
+    """
 )
 
 # ===================== CẤU HÌNH THỜI GIAN & TOẠ ĐỘ GỐC =====================
@@ -166,12 +166,10 @@ def render_attendance_form(user_type, sheet_key):
         try:
             records = sw.get_all_records()
             df_records = pd.DataFrame(records)
-            # Tìm kiếm ở cột đầu tiên hoặc cột chứa chữ 'Mã'
             col_code = df_records.columns[0]
             match = df_records[df_records[col_code].astype(str) == user_code]
             if not match.empty:
                 user_info = match.iloc[0].to_dict()
-                # Hiển thị tên định danh trực quan lên ứng dụng
                 col_name_key = df_records.columns[1] if len(df_records.columns) > 1 else col_code
                 st.success(f"🟢 Xin chào {user_type}: **{user_info.get(col_name_key, user_code)}**")
             else:
@@ -205,7 +203,6 @@ def render_attendance_form(user_type, sheet_key):
             elif not loc_data or "latitude" not in loc_data:
                 st.error("Chưa lấy được định vị GPS. Vui lòng cấp quyền vị trí cho trình duyệt và thử lại.")
             else:
-                # Tính khoảng cách thực tế
                 u_lat = loc_data["latitude"]
                 u_lon = loc_data["longitude"]
                 distance = geodesic((u_lat, u_lon), (LAT_CENTER, LON_CENTER)).meters
@@ -213,13 +210,11 @@ def render_attendance_form(user_type, sheet_key):
                 if distance > RADIUS_METERS:
                     st.error(f"❌ Ngoài bán kính cho phép! Khoảng cách hiện tại: {round(distance, 1)}m (Yêu cầu < {RADIUS_METERS}m)")
                 else:
-                    # Tính phút đi muộn dựa theo giờ chuẩn của Tiết học
                     h_start, m_start = parse_time_str(s_time)
                     target_time = now_vn.replace(hour=h_start, minute=m_start, second=0, microsecond=0)
                     diff_minutes = (now_vn - target_time).total_seconds() / 60
                     late_min = max(0, int(diff_minutes))
 
-                    # Tiến hành lưu dữ liệu
                     try:
                         lw.append_row([
                             now_vn.strftime("%d/%m/%Y"),
@@ -239,7 +234,6 @@ def render_attendance_form(user_type, sheet_key):
                     logs = lw.get_all_records()
                     df_log = pd.DataFrame(logs)
                     
-                    # Tìm dòng Check-in gần nhất của User hiện tại
                     col_user = df_log.columns[1]
                     user_logs = df_log[(df_log[col_user].astype(str) == user_code) & (df_log["IN/OUT"] == "IN")]
                     
@@ -250,7 +244,6 @@ def render_attendance_form(user_type, sheet_key):
                         in_time_str = last_in["Giờ"]
                         num_les = int(last_in["Số tiết"])
                         
-                        # Tính toán xem đủ giờ đứng lớp tối thiểu chưa
                         h_in, m_in = parse_time_str(in_time_str)
                         in_datetime = now_vn.replace(hour=h_in, minute=m_in, second=0, microsecond=0)
                         worked_minutes = (now_vn - in_datetime).total_seconds() / 60
@@ -262,7 +255,7 @@ def render_attendance_form(user_type, sheet_key):
                             lw.append_row([
                                 now_vn.strftime("%d/%m/%Y"), user_code, "", "", "", "", "", "", "", "OUT", now_vn.strftime("%H:%M:%S")
                             ])
-                            st.success("🚀 Đã ghi nhận RA CA thành công. Chúc thầy/cô hoặc bạn ra về an toàn!")
+                            st.success("🚀 Đã ghi nhận RA CA thành công.")
                 except Exception as ex:
                     st.error(f"Lỗi kiểm tra dữ liệu ra ca: {ex}")
 
