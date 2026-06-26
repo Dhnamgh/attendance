@@ -14,7 +14,6 @@ from math import radians, sin, cos, sqrt, atan2
 # ================= CONFIG =================
 st.set_page_config(page_title="Attendance System", layout="wide")
 
-# ✅ LẤY TỪ SECRETS (KHÔNG HARD-CODE)
 GV_SHEET = st.secrets["GV_SHEET"]
 SV_SHEET = st.secrets["SV_SHEET"]
 ADMIN_PASSWORD = st.secrets["ADMIN_PASSWORD"]
@@ -23,7 +22,63 @@ LAT_CENTER = st.secrets.get("LAT_CENTER", 10.754665)
 LON_CENTER = st.secrets.get("LON_CENTER", 106.663381)
 RADIUS = st.secrets.get("RADIUS", 100)
 
-QR_TTL = 30
+# ================= CSS =================
+st.markdown("""
+<style>
+.main {
+    background-color: #f3f6f9;
+}
+
+/* HEADER */
+.header {
+    background-color: #1b5e8c;
+    padding: 10px;
+    color: white;
+    display: flex;
+    align-items: center;
+}
+
+.header img {
+    height: 50px;
+    margin-right: 15px;
+}
+
+/* SIDEBAR */
+section[data-testid="stSidebar"] {
+    background-color: #1b5e8c;
+}
+
+section[data-testid="stSidebar"] * {
+    color: white !important;
+    font-weight: bold;
+}
+
+/* CARD */
+.card {
+    background-color: white;
+    padding: 20px;
+    border-radius: 10px;
+    box-shadow: 0px 2px 6px rgba(0,0,0,0.1);
+}
+
+/* FOOTER */
+.footer {
+    background-color: #1f2557;
+    color: white;
+    padding: 20px;
+    margin-top: 40px;
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+# ================= HEADER =================
+st.markdown(f"""
+<div class="header">
+    <img src="https://raw.githubusercontent.com/dao-hong-nam/temp-assets/main/h.png">
+    <h2>HỆ THỐNG ĐIỂM DANH</h2>
+</div>
+""", unsafe_allow_html=True)
 
 # ================= GOOGLE =================
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
@@ -56,142 +111,100 @@ def distance(lat1, lon1, lat2, lon2):
 
 def check_location():
     if not streamlit_geolocation:
-        st.warning("Không có module GPS")
-        return False
+        return True
 
     loc = streamlit_geolocation()
-
     if loc and loc.get("latitude"):
         d = distance(
             LAT_CENTER, LON_CENTER,
             loc["latitude"], loc["longitude"]
         )
         return d <= RADIUS
-
-    st.warning("Không lấy được vị trí")
     return False
 
-# ================= TOKEN =================
-def token():
-    return int(time.time() // QR_TTL)
+# ================= CARD TEMPLATE =================
+def card(title, func):
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.subheader(title)
+    func()
+    st.markdown("</div>", unsafe_allow_html=True)
 
-# ================= CHECK-IN =================
-def checkin(sheet_id, id_value, name):
+# ================= VIEWS =================
 
-    data = load(sheet_id)
-    df = pd.DataFrame(data)
-
-    if id_value not in df.iloc[:, 0].astype(str).values:
-        st.error("Không tồn tại trong danh sách")
-        return
-
-    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    append(sheet_id, ["LOG", id_value, name, "IN", now])
-
-    st.success("Check-in thành công")
-
-def checkout(sheet_id, id_value):
-
-    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    append(sheet_id, ["LOG", id_value, "", "OUT", now])
-
-    st.success("Check-out thành công")
-
-# ================= STUDENT =================
 def student_view():
+    def content():
+        mssv = st.text_input("MSSV", key="sv_mssv")
+        name = st.text_input("Họ tên", key="sv_name")
 
-    st.subheader("Sinh viên")
+        if st.button("Check-in", key="sv_in"):
+            if not check_location():
+                st.error("Ngoài khu vực")
+                return
+            append(SV_SHEET, ["IN", mssv, name, str(datetime.datetime.now())])
+            st.success("Thành công")
 
-    mssv = st.text_input("MSSV")
-    name = st.text_input("Họ tên")
+        if st.button("Check-out", key="sv_out"):
+            append(SV_SHEET, ["OUT", mssv, "", str(datetime.datetime.now())])
+            st.success("Thành công")
 
-    if st.button("Check-in"):
-        if not check_location():
-            st.error("Ngoài khu vực cho phép")
-            return
-        checkin(SV_SHEET, mssv, name)
+    card("Điểm danh sinh viên", content)
 
-    if st.button("Check-out"):
-        checkout(SV_SHEET, mssv)
-
-# ================= LECTURER =================
 def lecturer_view():
+    def content():
+        msgv = st.text_input("MSGV", key="gv_msgv")
+        name = st.text_input("Họ tên", key="gv_name")
 
-    st.subheader("Giảng viên")
+        if st.button("Check-in", key="gv_in"):
+            if not check_location():
+                st.error("Ngoài khu vực")
+                return
+            append(GV_SHEET, ["IN", msgv, name, str(datetime.datetime.now())])
+            st.success("Thành công")
 
-    msgv = st.text_input("MSGV")
-    name = st.text_input("Họ tên")
+        if st.button("Check-out", key="gv_out"):
+            append(GV_SHEET, ["OUT", msgv, "", str(datetime.datetime.now())])
+            st.success("Thành công")
 
-    if st.button("Check-in"):
-        if not check_location():
-            st.error("Ngoài khu vực cho phép")
-            return
-        checkin(GV_SHEET, msgv, name)
+    card("Điểm danh giảng viên", content)
 
-    if st.button("Check-out"):
-        checkout(GV_SHEET, msgv)
-
-# ================= QR =================
-def qr_view():
-
-    import qrcode, io
-    from PIL import Image
-
-    st.subheader("QR và Link")
-
-    role = st.selectbox("Loại", ["SV", "GV"])
-    placeholder = st.empty()
-
-    while True:
-        t = token()
-        url = f"?role={role}&t={t}"
-
-        qr = qrcode.make(url)
-
-        buf = io.BytesIO()
-        qr.save(buf)
-        buf.seek(0)
-
-        placeholder.image(Image.open(buf), width=250)
-        st.caption(url)
-
-        time.sleep(1)
-
-# ================= ADMIN =================
 def admin_view():
+    def content():
+        pw = st.text_input("Mật khẩu", type="password", key="admin_pw")
 
-    pw = st.text_input("Mật khẩu", type="password")
+        if pw == ADMIN_PASSWORD:
+            st.write("Dữ liệu sinh viên")
+            st.dataframe(pd.DataFrame(load(SV_SHEET)))
 
-    if pw != ADMIN_PASSWORD:
-        return
+            st.write("Dữ liệu giảng viên")
+            st.dataframe(pd.DataFrame(load(GV_SHEET)))
+        else:
+            st.warning("Chưa đăng nhập")
 
-    st.success("Đã đăng nhập")
+    card("Quản trị hệ thống", content)
 
-    st.write("Dữ liệu Sinh viên")
-    st.dataframe(pd.DataFrame(load(SV_SHEET)))
-
-    st.write("Dữ liệu Giảng viên")
-    st.dataframe(pd.DataFrame(load(GV_SHEET)))
+# ================= SIDEBAR =================
+menu = st.sidebar.radio(
+    "",
+    ["Giảng viên", "Sinh viên", "Quản trị"],
+    key="menu_main"
+)
 
 # ================= MAIN =================
-
-tab1, tab2, tab3, tab4 = st.tabs([
-    "Sinh viên",
-    "Giảng viên",
-    "QR",
-    "Quản trị"
-])
-
-with tab1:
+if menu == "Sinh viên":
     student_view()
 
-with tab2:
+elif menu == "Giảng viên":
     lecturer_view()
 
-with tab3:
-    qr_view()
-
-with tab4:
+elif menu == "Quản trị":
     admin_view()
+
+# ================= FOOTER =================
+st.markdown("""
+<div class="footer">
+<b>ĐẠI HỌC Y DƯỢC TP. HỒ CHÍ MINH</b><br>
+ĐC: 217 Hồng Bàng, TP.HCM<br>
+ĐT: 028 3855 8411<br>
+Email: hanhchinh@ump.edu.vn
+</div>
+""", unsafe_allow_html=True)
