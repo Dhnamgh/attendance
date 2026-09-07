@@ -1,5 +1,8 @@
 streamlit
 pandas
-gspread
-google-auth
-streamlit-geolocation
+openpyxl
+requests
+msal
+plotly
+streamlit-js-eval
+firebase-admin
