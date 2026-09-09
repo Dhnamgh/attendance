@@ -93,7 +93,7 @@ st.markdown("""
 
 CLASS_LIST = ["D26A", "D26B", "D26C", "D26D", "KTHA26"]
 MAX_ALLOWED_RADIUS = 150.0 
-ALLOWED_IP_PREFIXES = ["172.24.0.0.", "172.25.0.0.", "172.26.0.0", "172.27.0.0", "172.28.0.0", "172.29.0.0", "103.180.97.", "118.69.1.", "203.162.1.", "171.244.1."]
+ALLOWED_IP_PREFIXES = ["103.180.97.", "118.69.1.", "203.162.1.", "171.244.1."]
 
 CAMPUSES = {
     "CS1": {
@@ -447,8 +447,10 @@ with tabs[0]:
         ip_valid = False
         if detected_campus_info and user_ip:
             ip_valid = any(user_ip.startswith(prefix) for prefix in ALLOWED_IP_PREFIXES)
-            if ip_valid: st.markdown('<div class="status-box-success"> ✅ IP Mạng Hợp lệ (Wi-Fi trường)</div>', unsafe_allow_html=True)
-            else: st.markdown('<div class="status-box-error">❌ Cảnh báo: IP không thuộc Wi-Fi trường</div>', unsafe_allow_html=True)
+            if ip_valid: 
+                st.markdown('<div class="status-box-success"> ✅ IP Mạng Hợp lệ (Wi-Fi trường)</div>', unsafe_allow_html=True)
+            else: 
+                st.warning("⚠️ Lưu ý: IP không thuộc Wi-Fi trường")
 
     btn_confirm = st.button("XÁC NHẬN ĐIỂM DANH", use_container_width=True)
 
@@ -500,11 +502,10 @@ with tabs[0]:
             st.error(f"Điểm danh thất bại: Hiện tại ({now_vn.strftime('%H:%M')}) nằm ngoài giờ làm việc / học tập quy định!")
         elif curr_dist > MAX_ALLOWED_RADIUS or not detected_campus_info:
             st.error(f"Điểm danh thất bại: Bạn đang ở cách trường {curr_dist:.1f}m (Vượt quá bán kính {int(MAX_ALLOWED_RADIUS)}m cho phép)!")
-        elif not ip_valid:
-            st.error("Điểm danh thất bại: Thiết bị chưa kết nối vào Wi-Fi nội bộ nhà trường!")
         elif len(input_id) != expected_len or not fetched_name:
             st.error(f"Mã số {expected_len} chữ số không tồn tại trong danh sách dữ liệu trên OneDrive!")
         else:
+
             node_map = {"Giảng viên": "LichSu_GV", "Viên chức": "LichSu_VC", "Sinh viên": "LichSu_SV"}
             target_node = node_map.get(user_role, "LichSu_GV")
             
