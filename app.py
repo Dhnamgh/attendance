@@ -19,10 +19,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed"
 )
-
-# Tự động làm mới cache dữ liệu khi người dùng truy cập
-st.cache_data.clear()
-
 # =============================== 2. CSS GIAO DIỆN ===============================
 st.markdown("""
 <style>
@@ -509,17 +505,20 @@ with tabs[0]:
             node_map = {"Giảng viên": "LichSu_GV", "Viên chức": "LichSu_VC", "Sinh viên": "LichSu_SV"}
             target_node = node_map.get(user_role, "LichSu_GV")
             
-            existing_df = read_from_firebase(target_node)
             last_action, last_time_str, last_note = None, "", ""
-            
-            if not existing_df.empty and "Mã Số" in existing_df.columns:
-                existing_df["CLEAN_ID"] = existing_df["Mã Số"].astype(str).str.strip().str.zfill(expected_len)
-                user_records = existing_df[existing_df["CLEAN_ID"] == input_id]
-                if not user_records.empty:
-                    last_record = user_records.iloc[-1]
+            try:
+                # Chỉ lọc những bản ghi có Mã Số trùng khớp trực tiếp từ Firebase, không tải cả database
+                ref = db.reference(target_node)
+                query_res = ref.order_by_child("Mã Số").equal_to(input_id).get()
+                if query_res and isinstance(query_res, dict):
+                    # Lấy bản ghi gần nhất
+                    last_key = list(query_res.keys())[-1]
+                    last_record = query_res[last_key]
                     last_action = str(last_record.get("Thao Tác", "")).strip()
                     last_time_str = str(last_record.get("Thời Gian", ""))
                     last_note = str(last_record.get("Ghi Chú", ""))
+            except Exception:
+                pass
 
             can_proceed = True
             
