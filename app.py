@@ -19,6 +19,9 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed"
 )
+
+# ĐÃ BỎ: st.cache_data.clear() để tránh phá bộ nhớ đệm khi có nhiều người truy cập đồng thời
+
 # =============================== 2. CSS GIAO DIỆN ===============================
 st.markdown("""
 <style>
@@ -215,6 +218,32 @@ def read_from_firebase(node_name):
         st.caption(f"Lỗi đọc dữ liệu từ Firebase ({node_name}): {str(e)}")
         return pd.DataFrame()
 
+# Hàm truy vấn nhanh 1 cá nhân từ Firebase (tránh kéo toàn bộ database gây nghẽn)
+def get_user_records_from_firebase(node_name, user_id):
+    try:
+        ref = db.reference(node_name)
+        snapshot = ref.order_by_child("Mã Số").equal_to(str(user_id)).get()
+        if snapshot:
+            if isinstance(snapshot, dict):
+                records = list(snapshot.values())
+            elif isinstance(snapshot, list):
+                records = [x for x in snapshot if x is not None]
+            else:
+                records = []
+            return records
+        return []
+    except Exception:
+        # Dự phòng nếu Firebase Rules chưa đánh index On "Mã Số"
+        try:
+            ref = db.reference(node_name)
+            snapshot = ref.get()
+            if snapshot:
+                vals = list(snapshot.values()) if isinstance(snapshot, dict) else [x for x in snapshot if x is not None]
+                return [r for r in vals if str(r.get("Mã Số", "")).strip() == str(user_id).strip()]
+        except Exception:
+            pass
+        return []
+
 def get_azure_token():
     try:
         azure_sec = st.secrets["azure"]
@@ -240,13 +269,14 @@ def build_graph_url(file_path):
     else:
         return f"https://graph.microsoft.com/v1.0/me/drive/root:/{file_path}:"
 
-@st.cache_data(ttl=180)
+# Tăng ttl cache lên 1800 giây (30 phút) để tránh tải lại file Excel lặp đi lặp lại
+@st.cache_data(ttl=1800, show_spinner=False)
 def read_excel_from_onedrive(file_path, sheet_name=None):
     token = get_azure_token()
     if not token: return pd.DataFrame()
     try:
         url = f"{build_graph_url(file_path)}/content"
-        response = requests.get(url, headers={"Authorization": f"Bearer {token}"})
+        response = requests.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=15)
         if response.status_code == 200:
             excel_bytes = io.BytesIO(response.content)
             df = pd.read_excel(excel_bytes, sheet_name=sheet_name if sheet_name else 0, dtype=str, engine="openpyxl")
@@ -505,20 +535,15 @@ with tabs[0]:
             node_map = {"Giảng viên": "LichSu_GV", "Viên chức": "LichSu_VC", "Sinh viên": "LichSu_SV"}
             target_node = node_map.get(user_role, "LichSu_GV")
             
+            # Tối ưu: Chỉ query lịch sử của cá nhân input_id thay vì kéo toàn bộ node
+            user_records = get_user_records_from_firebase(target_node, input_id)
             last_action, last_time_str, last_note = None, "", ""
-            try:
-                # Chỉ lọc những bản ghi có Mã Số trùng khớp trực tiếp từ Firebase, không tải cả database
-                ref = db.reference(target_node)
-                query_res = ref.order_by_child("Mã Số").equal_to(input_id).get()
-                if query_res and isinstance(query_res, dict):
-                    # Lấy bản ghi gần nhất
-                    last_key = list(query_res.keys())[-1]
-                    last_record = query_res[last_key]
-                    last_action = str(last_record.get("Thao Tác", "")).strip()
-                    last_time_str = str(last_record.get("Thời Gian", ""))
-                    last_note = str(last_record.get("Ghi Chú", ""))
-            except Exception:
-                pass
+            
+            if user_records:
+                last_record = user_records[-1]
+                last_action = str(last_record.get("Thao Tác", "")).strip()
+                last_time_str = str(last_record.get("Thời Gian", ""))
+                last_note = str(last_record.get("Ghi Chú", ""))
 
             can_proceed = True
             
@@ -726,27 +751,24 @@ with tabs[1]:
     is_afternoon_attended = False
 
     if len(mc_id) == mc_expected_len and mc_fetched_name:
-        check_nodes = ["LichSu_GV", "LichSu_VC", "LichSu_SV"]
+        # Tối ưu: Chỉ kiểm tra đúng node của role hiện tại thay vì duyệt cả 3 node
+        node_map_role = {"Giảng viên": "LichSu_GV", "Viên chức": "LichSu_VC", "Sinh viên": "LichSu_SV"}
+        target_mc_node = node_map_role.get(mc_user_role, "LichSu_SV")
         today_str = now_vn.strftime("%Y-%m-%d")
         
-        for node in check_nodes:
-            hist_df = read_from_firebase(node)
-            if not hist_df.empty and "Mã Số" in hist_df.columns and "Thời Gian" in hist_df.columns:
-                hist_df["CLEAN_ID"] = hist_df["Mã Số"].astype(str).str.split('.').str[0].str.strip().str.zfill(mc_expected_len)
-                hist_df["DATE_STR"] = hist_df["Thời Gian"].astype(str).str[:10]
-                
-                records_today = hist_df[(hist_df["CLEAN_ID"] == mc_id) & (hist_df["DATE_STR"] == today_str)]
-                if not records_today.empty:
-                    has_attended_today = True
-                    last_rec = records_today.iloc[-1]
-                    attendance_today_time = str(last_rec.get("Thời Gian", ""))
-                    
-                    for _, r in records_today.iterrows():
-                        t_str = str(r.get("Thời Gian", ""))
-                        if len(t_str) >= 16:
-                            hour = int(t_str[11:13])
-                            if hour < 12: is_morning_attended = True
-                            else: is_afternoon_attended = True
+        hist_records = get_user_records_from_firebase(target_mc_node, mc_id)
+        for r in hist_records:
+            t_str = str(r.get("Thời Gian", ""))
+            if t_str.startswith(today_str):
+                has_attended_today = True
+                attendance_today_time = t_str
+                if len(t_str) >= 16:
+                    try:
+                        hour = int(t_str[11:13])
+                        if hour < 12: is_morning_attended = True
+                        else: is_afternoon_attended = True
+                    except Exception:
+                        pass
 
     with st.form("form_minh_chung_detail"):
         mc_type = st.selectbox("Loại yêu cầu:", ["Nghỉ phép Buổi Sáng", "Nghỉ phép Buổi Chiều", "Nghỉ phép Cả Ngày", "Minh chứng Đi trễ > 30 phút"])
