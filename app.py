@@ -225,23 +225,11 @@ def get_user_records_from_firebase(node_name, user_id):
         snapshot = ref.order_by_child("Mã Số").equal_to(str(user_id)).get()
         if snapshot:
             if isinstance(snapshot, dict):
-                records = list(snapshot.values())
+                return list(snapshot.values())
             elif isinstance(snapshot, list):
-                records = [x for x in snapshot if x is not None]
-            else:
-                records = []
-            return records
+                return [x for x in snapshot if x is not None]
         return []
     except Exception:
-        # Dự phòng nếu Firebase Rules chưa đánh index On "Mã Số"
-        try:
-            ref = db.reference(node_name)
-            snapshot = ref.get()
-            if snapshot:
-                vals = list(snapshot.values()) if isinstance(snapshot, dict) else [x for x in snapshot if x is not None]
-                return [r for r in vals if str(r.get("Mã Số", "")).strip() == str(user_id).strip()]
-        except Exception:
-            pass
         return []
 
 def get_azure_token():
