@@ -20,8 +20,6 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# ĐÃ BỎ: st.cache_data.clear() để tránh phá bộ nhớ đệm khi có nhiều người truy cập đồng thời
-
 # =============================== 2. CSS GIAO DIỆN ===============================
 st.markdown("""
 <style>
@@ -178,7 +176,8 @@ init_firebase()
 
 def clean_dict_for_firebase(d):
     cleaned = {}
-    forbidden_chars = ["/", ".", "#", "$", "[", "]"]
+    # Chỉ loại trừ các ký tự cấm đối với KEY trong Firebase Realtime DB
+    forbidden_chars = [".", "#", "$", "[", "]"]
     for k, v in d.items():
         clean_k = str(k)
         for char in forbidden_chars:
@@ -218,7 +217,7 @@ def read_from_firebase(node_name):
         st.caption(f"Lỗi đọc dữ liệu từ Firebase ({node_name}): {str(e)}")
         return pd.DataFrame()
 
-# Hàm truy vấn nhanh 1 cá nhân từ Firebase (tránh kéo toàn bộ database gây nghẽn)
+# Hàm truy vấn nhanh 1 cá nhân từ Firebase (chỉ dùng Index, tuyệt đối không kéo toàn bộ database về RAM)
 def get_user_records_from_firebase(node_name, user_id):
     try:
         ref = db.reference(node_name)
@@ -229,7 +228,7 @@ def get_user_records_from_firebase(node_name, user_id):
             elif isinstance(snapshot, list):
                 return [x for x in snapshot if x is not None]
         return []
-    except Exception:
+    except Exception as e:
         return []
 
 def get_azure_token():
@@ -257,7 +256,7 @@ def build_graph_url(file_path):
     else:
         return f"https://graph.microsoft.com/v1.0/me/drive/root:/{file_path}:"
 
-# Tăng ttl cache lên 1800 giây (30 phút) để tránh tải lại file Excel lặp đi lặp lại
+# Bộ nhớ đệm danh sách lớp 30 phút để giải phóng tải cho OneDrive API
 @st.cache_data(ttl=1800, show_spinner=False)
 def read_excel_from_onedrive(file_path, sheet_name=None):
     token = get_azure_token()
@@ -468,7 +467,7 @@ with tabs[0]:
 
     btn_confirm = st.button("XÁC NHẬN ĐIỂM DANH", use_container_width=True)
 
-    # --- KHUNG XỬ LÝ NÚT RA CA SỚM (XÁC NHẬN CÓ / KHÔNG) ---
+    # --- KHUNG XỬ LÝ NÚT RA CA SỚM ---
     if st.session_state["early_leave_pending"]:
         st.warning(f"⚠️ CẢNH BÁO: Bạn đang thực hiện Ra ca sớm **{st.session_state['early_leave_mins']} phút** so với quy định ca làm việc!")
         st.write("Bạn có chắc chắn muốn xác nhận Ra ca sớm không?")
@@ -519,11 +518,10 @@ with tabs[0]:
         elif len(input_id) != expected_len or not fetched_name:
             st.error(f"Mã số {expected_len} chữ số không tồn tại trong danh sách dữ liệu trên OneDrive!")
         else:
-
             node_map = {"Giảng viên": "LichSu_GV", "Viên chức": "LichSu_VC", "Sinh viên": "LichSu_SV"}
             target_node = node_map.get(user_role, "LichSu_GV")
             
-            # Tối ưu: Chỉ query lịch sử của cá nhân input_id thay vì kéo toàn bộ node
+            # Tối ưu: Sử dụng Index của Firebase, không gây nghẽn RAM
             user_records = get_user_records_from_firebase(target_node, input_id)
             last_action, last_time_str, last_note = None, "", ""
             
@@ -551,7 +549,7 @@ with tabs[0]:
 
             late_minutes_raw = int((now_vn - sched_start).total_seconds() / 60)
             
-            # LUẬT 5 PHÚT: Trễ <= 5 phút coi như ĐÚNG GIỜ, trễ > 5 phút tính TRỄ CHÍNH XÁC
+            # LUẬT 5 PHÚT: Trễ <= 5 phút coi như ĐÚNG GIỜ
             if late_minutes_raw > 5:
                 late_minutes_current = late_minutes_raw
             else:
@@ -562,7 +560,7 @@ with tabs[0]:
             else:
                 sched_end = sched_end_base
 
-            # ================= TỰ ĐỘNG ĐÓNG CA NẾU QUÊN CHECK-OUT =================
+            # Tự động đóng ca nếu quên check-out
             if action_type == "Vào ca (Check-in)" and last_action == "Vào ca (Check-in)":
                 try:
                     last_time_dt = datetime.strptime(last_time_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone(timedelta(hours=7)))
@@ -601,7 +599,7 @@ with tabs[0]:
                 except Exception:
                     pass
 
-            # ================= KIỂM TRA RA CA / VÀO CA =================
+            # Kiểm tra quy tắc Ra ca / Vào ca
             if can_proceed:
                 if user_role == "Viên chức" and action_type == "Vào ca (Check-in)":
                     if now_vn > sched_start + timedelta(minutes=30):
@@ -702,7 +700,6 @@ with tabs[1]:
                 col_name = cbvc_df.columns[1] if len(cbvc_df.columns) > 1 else cbvc_df.columns[0]
                 col_unit = cbvc_df.columns[2] if len(cbvc_df.columns) > 2 else ""
                 
-                # Làm sạch mã số chuẩn xác
                 cbvc_df["CLEAN_ID"] = cbvc_df[col_msvc].astype(str).str.split('.').str[0].str.strip().str.replace('\xa0', '').str.zfill(8)
                 match = cbvc_df[cbvc_df["CLEAN_ID"] == mc_id]
                 if not match.empty:
@@ -715,7 +712,6 @@ with tabs[1]:
                 col_name = sv_df.columns[1] if len(sv_df.columns) > 1 else sv_df.columns[0]
                 col_unit = sv_df.columns[2] if len(sv_df.columns) > 2 else ""
                 
-                # Làm sạch mã số sinh viên
                 sv_df["CLEAN_ID"] = sv_df[col_mssv].astype(str).str.split('.').str[0].str.strip().str.replace('\xa0', '').str.zfill(9)
                 match = sv_df[sv_df["CLEAN_ID"] == mc_id]
                 if not match.empty:
@@ -723,7 +719,6 @@ with tabs[1]:
                     unit_raw = str(match.iloc[0][col_unit]).strip() if col_unit else ""
                     mc_fetched_unit = f"{unit_raw} - Lớp {mc_class}" if unit_raw else f"Lớp {mc_class}"
 
-    # Hiển thị Họ tên & Đơn vị (Xóa key cố định để Streamlit tự động bind value động)
     display_name = mc_fetched_name if mc_fetched_name else ("Mã số chưa chính xác" if len(mc_id) == mc_expected_len else "")
     display_unit = mc_fetched_unit if mc_fetched_unit else ""
 
@@ -739,7 +734,6 @@ with tabs[1]:
     is_afternoon_attended = False
 
     if len(mc_id) == mc_expected_len and mc_fetched_name:
-        # Tối ưu: Chỉ kiểm tra đúng node của role hiện tại thay vì duyệt cả 3 node
         node_map_role = {"Giảng viên": "LichSu_GV", "Viên chức": "LichSu_VC", "Sinh viên": "LichSu_SV"}
         target_mc_node = node_map_role.get(mc_user_role, "LichSu_SV")
         today_str = now_vn.strftime("%Y-%m-%d")
@@ -823,6 +817,36 @@ with tabs[2]:
     else:
         st.success("Đã xác thực quyền Quản trị viên!")
         st.markdown("---")
+
+        # ================= NÚT ĐỒNG BỘ DỮ LIỆU SANG ONEDRIVE =================
+        st.markdown("### ☁️ ĐỒNG BỘ DỮ LIỆU SANG ONEDRIVE")
+        st.caption("Nhấn nút này để gom toàn bộ dữ liệu điểm danh từ Firebase ghi đè vào các file Excel trên OneDrive.")
+        
+        if st.button("🔄 ĐỒNG BỘ TẤT CẢ DỮ LIỆU SANG ONEDRIVE (XLSX)", type="primary", use_container_width=True):
+            with st.spinner("Đang trích xuất dữ liệu từ Firebase và ghi vào OneDrive..."):
+                sync_tasks = [
+                    ("Sinh viên", "LichSu_SV", "LichSu_SV.xlsx"),
+                    ("Giảng viên", "LichSu_GV", "LichSu_GV.xlsx"),
+                    ("Viên chức", "LichSu_VC", "LichSu_VC.xlsx"),
+                    ("Nghỉ phép", "MinhChung_NghiPhep", "MinhChung_NghiPhep.xlsx")
+                ]
+                success_count = 0
+                for role_label, node, fname in sync_tasks:
+                    df_sync = read_from_firebase(node)
+                    if not df_sync.empty:
+                        buf = io.BytesIO()
+                        with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+                            df_sync.to_excel(writer, sheet_name='Sheet1', index=False)
+                        
+                        uploaded = upload_file_to_onedrive("OGSM/ATTENDANCE/DATA", fname, buf.getvalue())
+                        if uploaded:
+                            success_count += 1
+                
+                if success_count > 0:
+                    st.success(f"✅ Đã đồng bộ thành công {success_count} file dữ liệu sang thư mục OneDrive (OGSM/ATTENDANCE/DATA)!")
+                else:
+                    st.warning("Chưa có dữ liệu mới để đồng bộ hoặc kiểm tra lại quyền kết nối Microsoft Graph.")
+        st.markdown("---")
         
         view_mode = st.radio("Chọn loại báo cáo:", [
             "Nhật ký điểm danh chi tiết & Biểu đồ", 
@@ -841,7 +865,6 @@ with tabs[2]:
             else:
                 unit_col = "Bộ Môn - Lớp" if "Bộ Môn - Lớp" in history_df.columns else ("Bộ Môn / Lớp" if "Bộ Môn / Lớp" in history_df.columns else ("Đơn Vị" if "Đơn Vị" in history_df.columns else history_df.columns[3]))
                 
-                # CHUẨN HÓA TẤT CẢ TÊN BỘ MÔN / TỔ HCTC-VPK ĐẾN CẢ BẢNG
                 history_df[unit_col] = history_df[unit_col].apply(shorten_unit_name)
 
                 available_units = ["Tất cả (Toàn Khoa / Toàn Trường)"] + sorted([str(u) for u in history_df[unit_col].dropna().unique() if str(u).strip() != ""])
@@ -852,7 +875,6 @@ with tabs[2]:
                 with c_f2:
                     selected_action_filter = st.selectbox("🔄 Lọc theo Thao tác ca làm việc:", ["Tất cả (Vào ca & Ra ca)", "Vào ca (Check-in)", "Ra ca (Check-out)"], index=0, key="dashboard_action_filter")
 
-                # ================= ÁP DỤNG LỌC =================
                 filtered_df = history_df.copy()
 
                 if selected_unit_filter != "Tất cả (Toàn Khoa / Toàn Trường)":
@@ -880,7 +902,6 @@ with tabs[2]:
                 
                 col_chart1, col_chart2 = st.columns(2)
                 
-                # 1. BIỂU ĐỒ TRÒN
                 with col_chart1:
                     chart_title_unit = f" - {selected_unit_filter}" if selected_unit_filter != "Tất cả (Toàn Khoa / Toàn Trường)" else " (Toàn Khoa)"
                     chart_title_action = f" [{selected_action_filter}]"
@@ -901,7 +922,6 @@ with tabs[2]:
                     else:
                         st.info("Không có dữ liệu phù hợp với bộ lọc hiện tại.")
 
-                # 2. BIỂU ĐỒ CỘT
                 with col_chart2:
                     st.markdown(f"**Biểu đồ Phân bố theo Bộ môn / Đơn vị{chart_title_unit}**")
                     if not filtered_df.empty and "Thao Tác" in filtered_df.columns:
@@ -920,7 +940,6 @@ with tabs[2]:
                     else:
                         st.info("Không có dữ liệu phù hợp để vẽ biểu đồ cột.")
 
-                # 3. BẢNG DỮ LIỆU NHẬT KÝ CHI TIẾT
                 st.markdown(f"**Bảng Nhật ký Chi tiết ({selected_report_role} - {selected_unit_filter} - {selected_action_filter}):**")
                 st.dataframe(filtered_df, use_container_width=True)
                 
