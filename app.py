@@ -176,7 +176,6 @@ init_firebase()
 
 def clean_dict_for_firebase(d):
     cleaned = {}
-    # Chỉ loại trừ các ký tự cấm đối với KEY trong Firebase Realtime DB
     forbidden_chars = [".", "#", "$", "[", "]"]
     for k, v in d.items():
         clean_k = str(k)
@@ -217,7 +216,7 @@ def read_from_firebase(node_name):
         st.caption(f"Lỗi đọc dữ liệu từ Firebase ({node_name}): {str(e)}")
         return pd.DataFrame()
 
-# Hàm truy vấn nhanh 1 cá nhân từ Firebase (chỉ dùng Index, tuyệt đối không kéo toàn bộ database về RAM)
+# Hàm truy vấn dùng Index, không kéo toàn bộ DB về RAM
 def get_user_records_from_firebase(node_name, user_id):
     try:
         ref = db.reference(node_name)
@@ -256,7 +255,7 @@ def build_graph_url(file_path):
     else:
         return f"https://graph.microsoft.com/v1.0/me/drive/root:/{file_path}:"
 
-# Bộ nhớ đệm danh sách lớp 30 phút để giải phóng tải cho OneDrive API
+# Bộ nhớ đệm 30 phút cho file danh sách
 @st.cache_data(ttl=1800, show_spinner=False)
 def read_excel_from_onedrive(file_path, sheet_name=None):
     token = get_azure_token()
@@ -299,7 +298,6 @@ def calculate_distance(lat1, lon1, lat2, lon2):
 # ================= 3. GIAO DIỆN HỆ THỐNG =================
 tabs = st.tabs(["Điểm danh", "Báo nghỉ phép", "Dashboard"])
 
-# Session State lưu trữ trạng thái Ra ca sớm
 if "early_leave_pending" not in st.session_state:
     st.session_state["early_leave_pending"] = False
 if "early_leave_mins" not in st.session_state:
@@ -312,20 +310,19 @@ with tabs[0]:
     is_out_of_hours = (now_vn.hour >= 18) or (now_vn.hour < 6)
     
     with col1:
-        user_role = st.radio("Chọn đối tượng:", ["Giảng viên", "Viên chức", "Sinh viên"], horizontal=True)
-        
-        expected_len = 9 if user_role == "Sinh viên" else 8
-        id_placeholder = "Ví dụ: 411265001" if user_role == "Sinh viên" else "Ví dụ: 06071234"
+        # Mặc định Sinh viên đứng đầu tiên
+        user_role = st.radio("Chọn đối tượng:", ["Sinh viên", "Giảng viên", "Viên chức"], index=0, horizontal=True)
         
         selected_class = ""
         if user_role == "Sinh viên":
             selected_class = st.selectbox("Chọn Lớp sinh viên:", CLASS_LIST)
             
-        input_id = st.text_input(f"Nhập Mã số ({expected_len} chữ số):", max_chars=expected_len, placeholder=id_placeholder, key="t1_id").strip()
+        # Cho phép nhập tối đa 9 ký tự cho TẤT CẢ các đối tượng
+        input_id = st.text_input("Nhập Mã số (tối đa 9 chữ số):", max_chars=9, placeholder="Nhập MSSV hoặc Mã CBVC (tối đa 9 số)", key="t1_id").strip()
         
         fetched_name, fetched_unit, fetched_sub, fetched_course = "", "", "", ""
         
-        if len(input_id) == expected_len:
+        if len(input_id) >= 6:
             if user_role in ["Giảng viên", "Viên chức"]:
                 target_df = read_excel_from_onedrive("OGSM/ATTENDANCE/DATA/CBVC.xlsx", sheet_name="Nhansu")
                 if not target_df.empty:
@@ -334,8 +331,12 @@ with tabs[0]:
                     col_unit = target_df.columns[2] if len(target_df.columns) > 2 else ""
                     col_sub = target_df.columns[3] if len(target_df.columns) > 3 else ""
                     
-                    target_df["CLEAN_ID"] = target_df[col_msvc].astype(str).str.strip().str.replace('\xa0', '').str.replace('.0', '', regex=False).str.zfill(8)
-                    match = target_df[target_df["CLEAN_ID"] == input_id]
+                    # Chuẩn hóa mã số (bỏ khoảng trắng, bỏ .0 và lấp đủ số)
+                    raw_col = target_df[col_msvc].astype(str).str.strip().str.replace('\xa0', '').str.replace('.0', '', regex=False)
+                    target_df["CLEAN_ID"] = raw_col
+                    
+                    # Khớp chính xác mã số hoặc so khớp theo 8 chữ số
+                    match = target_df[(target_df["CLEAN_ID"] == input_id) | (target_df["CLEAN_ID"] == input_id.zfill(8))]
                     if not match.empty:
                         fetched_name = match.iloc[0][col_name]
                         fetched_unit = match.iloc[0][col_unit] if col_unit else ""
@@ -350,15 +351,18 @@ with tabs[0]:
                     col_sub = target_df.columns[3] if len(target_df.columns) > 3 else ""
                     col_course = target_df.columns[4] if len(target_df.columns) > 4 else ""
                     
-                    target_df["CLEAN_ID"] = target_df[col_mssv].astype(str).str.strip().str.replace('\xa0', '').str.replace('.0', '', regex=False).str.zfill(9)
-                    match = target_df[target_df["CLEAN_ID"] == input_id]
+                    raw_col = target_df[col_mssv].astype(str).str.strip().str.replace('\xa0', '').str.replace('.0', '', regex=False)
+                    target_df["CLEAN_ID"] = raw_col
+                    
+                    # Khớp đúng 9 số hoặc theo định dạng chuỗi
+                    match = target_df[(target_df["CLEAN_ID"] == input_id) | (target_df["CLEAN_ID"] == input_id.zfill(9))]
                     if not match.empty:
                         fetched_name = match.iloc[0][col_name]
                         fetched_unit = match.iloc[0][col_unit] if col_unit else ""
                         fetched_sub = match.iloc[0][col_sub] if col_sub else ""
                         fetched_course = match.iloc[0][col_course] if col_course else ""
 
-        st.text_input("Họ và tên:", value=str(fetched_name if fetched_name else ("Mã số chưa chính xác" if len(input_id)==expected_len else "")), disabled=True)
+        st.text_input("Họ và tên:", value=str(fetched_name if fetched_name else ("Chưa tìm thấy mã số trong danh sách" if len(input_id) >= 6 else "")), disabled=True)
         st.text_input("Đơn vị (Trường/Khoa):", value=str(fetched_unit), disabled=True)
         st.text_input("Bộ môn:", value=str(fetched_sub), disabled=True)
         if user_role == "Sinh viên":
@@ -406,21 +410,15 @@ with tabs[0]:
                 vc_shift = st.selectbox("Ca làm việc Viên chức:", ["Ca Sáng (07:00 - 11:00)", "Ca Chiều (13:00 - 17:00)"], index=default_shift_idx)
 
     with col2:
-        st.markdown("**Xác thực Tự động (GPS & Wi-Fi)**")
+        st.markdown("**Xác thực Tự động (GPS)**")
         location = get_geolocation()
         user_lat, user_lng = None, None
         if location and 'coords' in location:
             user_lat, user_lng = location['coords']['latitude'], location['coords']['longitude']
             st.caption(f"GPS: `{user_lat:.5f}, {user_lng:.5f}`")
         else:
-            st.warning("Đang kết nối GPS... CHỌN 'CHO PHÉP' (Allow) vị trí!")
+            st.warning("⚠️ Đang chờ GPS... Bấm 'CHO PHÉP' (Allow) vị trí trên trình duyệt!")
 
-        user_ip = streamlit_js_eval(
-            js_expressions="fetch('https://api.ipify.org?format=json').then(r => r.json()).then(data => data.ip)", 
-            key='get_user_ip'
-        )
-        if user_ip: st.caption(f"IP: `{user_ip}`")
-        
         action_type = st.radio("Thao tác ca làm việc:", ["Vào ca (Check-in)", "Ra ca (Check-out)"], horizontal=True)
 
         distances = {}
@@ -447,99 +445,96 @@ with tabs[0]:
         curr_dist = distances.get(final_campus_key, 0.0) if final_campus_key else 0.0
 
         if user_lat is None or user_lng is None:
-            campus_display_name = "Đang chờ GPS..."
-            st.info("⏳ Đang định vị GPS, vui lòng đợi vài giây và bấm 'Cho phép' trên trình duyệt...")
+            st.info("⏳ Vui lòng bật vị trí (GPS) trên điện thoại và tải lại trang nếu chưa hiện toạ độ.")
         elif detected_campus_info and curr_dist <= MAX_ALLOWED_RADIUS:
-            campus_display_name = f"{detected_campus_info['name']} ({detected_campus_info['address']})"
-            st.success(f"Đã chọn: **{detected_campus_info['name']}**")
-            st.info(f"✅ Vị trí GPS hợp lệ (Cách cơ sở ~{int(curr_dist)}m)")
+            st.success(f"✅ Hợp lệ: **{detected_campus_info['name']}** (Cách ~{int(curr_dist)}m)")
         else:
-            campus_display_name = "Không xác định"
-            st.markdown('<div class="status-box-error">❌ Cảnh báo: Vị trí GPS không hợp lệ (Ngoài phạm vi quy định)!</div>', unsafe_allow_html=True)
-
-        ip_valid = False
-        if detected_campus_info and user_ip:
-            ip_valid = any(user_ip.startswith(prefix) for prefix in ALLOWED_IP_PREFIXES)
-            if ip_valid: 
-                st.markdown('<div class="status-box-success"> ✅ IP Mạng Hợp lệ (Wi-Fi trường)</div>', unsafe_allow_html=True)
-            else: 
-                st.warning("⚠️ Lưu ý: IP không thuộc Wi-Fi trường")
+            st.error(f"❌ Ngoài bán kính cho phép (Cách cơ sở ~{int(curr_dist)}m > 150m)!")
 
     btn_confirm = st.button("XÁC NHẬN ĐIỂM DANH", use_container_width=True)
 
-    # --- KHUNG XỬ LÝ NÚT RA CA SỚM ---
+    # --- XỬ LÝ RA CA SỚM ---
     if st.session_state["early_leave_pending"]:
-        st.warning(f"⚠️ CẢNH BÁO: Bạn đang thực hiện Ra ca sớm **{st.session_state['early_leave_mins']} phút** so với quy định ca làm việc!")
-        st.write("Bạn có chắc chắn muốn xác nhận Ra ca sớm không?")
-        
+        st.warning(f"⚠️ CẢNH BÁO: Ra ca sớm **{st.session_state['early_leave_mins']} phút**!")
         c_confirm1, c_confirm2 = st.columns(2)
         with c_confirm1:
             if st.button("CÓ, XÁC NHẬN RA CA SỚM", key="btn_yes_early", use_container_width=True):
                 node_map = {"Giảng viên": "LichSu_GV", "Viên chức": "LichSu_VC", "Sinh viên": "LichSu_SV"}
-                target_node = node_map.get(user_role, "LichSu_GV")
-                
-                unit_sub_display = f"{fetched_sub} ({selected_class})" if user_role == "Sinh viên" else fetched_sub
-                short_unit = shorten_unit_name(unit_sub_display)
-                
+                target_node = node_map.get(user_role, "LichSu_SV")
                 early_mins = st.session_state['early_leave_mins']
                 record_data = {
                     "Mã Số": input_id,
                     "Họ Và Tên": str(fetched_name),
                     "Đối Tượng": user_role,
                     "Đơn Vị": str(fetched_unit),
-                    "Bộ Môn - Lớp": str(short_unit),
-                    "Cơ Sở": campus_display_name,
+                    "Bộ Môn - Lớp": str(shorten_unit_name(f"{fetched_sub} ({selected_class})" if user_role == "Sinh viên" else fetched_sub)),
+                    "Cơ Sở": detected_campus_info['name'] if detected_campus_info else "N/A",
                     "Thời Gian": now_vn.strftime("%Y-%m-%d %H:%M:%S"),
                     "Thao Tác": "Ra ca (Check-out)",
                     "Khoảng Cách (m)": round(curr_dist, 1),
-                    "Địa Chỉ IP": user_ip if user_ip else "N/A",
+                    "Địa Chỉ IP": "N/A",
                     "Trạng Thái": f"Về sớm ({early_mins} phút)",
                     "Số Phút Trễ": 0,
                     "Số Phút Về Sớm": early_mins,
                     "Ghi Chú": f"Xác nhận Ra ca sớm {early_mins} phút."
                 }
                 save_to_firebase(target_node, record_data)
-                
-                st.success(f"✅ ĐÃ XÁC NHẬN RA CA SỚM THÀNH CÔNG! Ghi nhận cho {user_role} {fetched_name} ra ca sớm {early_mins} phút lúc {now_vn.strftime('%H:%M:%S')}.")
+                st.success("✅ Đã ghi nhận Ra ca sớm thành công!")
                 st.session_state["early_leave_pending"] = False
                 st.session_state["early_leave_mins"] = 0
 
         with c_confirm2:
-            if st.button("KHÔNG, TIẾP TỤC Ở LẠI", key="btn_no_early", use_container_width=True):
+            if st.button("KHÔNG, Ở LẠI", key="btn_no_early", use_container_width=True):
                 st.session_state["early_leave_pending"] = False
                 st.session_state["early_leave_mins"] = 0
-                st.info("Đã hủy thao tác Ra ca sớm.")
+                st.rerun()
 
     elif btn_confirm:
         if is_out_of_hours:
-            st.error(f"Điểm danh thất bại: Hiện tại ({now_vn.strftime('%H:%M')}) nằm ngoài giờ làm việc / học tập quy định!")
+            st.error("Hiện tại nằm ngoài khung giờ làm việc/học tập quy định!")
+        elif user_lat is None or user_lng is None:
+            st.error("Chưa nhận được tín hiệu GPS. Vui lòng cho phép quyền vị trí trên điện thoại!")
         elif curr_dist > MAX_ALLOWED_RADIUS or not detected_campus_info:
-            st.error(f"Điểm danh thất bại: Bạn đang ở cách trường {curr_dist:.1f}m (Vượt quá bán kính {int(MAX_ALLOWED_RADIUS)}m cho phép)!")
-        elif len(input_id) != expected_len or not fetched_name:
-            st.error(f"Mã số {expected_len} chữ số không tồn tại trong danh sách dữ liệu trên OneDrive!")
+            st.error(f"Điểm danh thất bại: Bạn đang cách trường {curr_dist:.1f}m (vượt quá 150m)!")
+        elif len(input_id) < 6 or not fetched_name:
+            st.error("Mã số chưa chính xác hoặc không có trong danh sách dữ liệu!")
         else:
             node_map = {"Giảng viên": "LichSu_GV", "Viên chức": "LichSu_VC", "Sinh viên": "LichSu_SV"}
-            target_node = node_map.get(user_role, "LichSu_GV")
+            target_node = node_map.get(user_role, "LichSu_SV")
             
-            # Tối ưu: Sử dụng Index của Firebase, không gây nghẽn RAM
-            user_records = get_user_records_from_firebase(target_node, input_id)
-            last_action, last_time_str, last_note = None, "", ""
-            
-            if user_records:
-                last_record = user_records[-1]
-                last_action = str(last_record.get("Thao Tác", "")).strip()
-                last_time_str = str(last_record.get("Thời Gian", ""))
-                last_note = str(last_record.get("Ghi Chú", ""))
+            # --- LUỒNG SINH VIÊN SIÊU TỐC (CHỐNG NGHẼN CHO HÀNG TRĂM NGƯỜI) ---
+            if user_role == "Sinh viên":
+                record_data = {
+                    "Mã Số": input_id,
+                    "Họ Và Tên": str(fetched_name),
+                    "Đối Tượng": "Sinh viên",
+                    "Đơn Vị": str(fetched_unit),
+                    "Bộ Môn - Lớp": str(shorten_unit_name(f"{fetched_sub} ({selected_class})")),
+                    "Cơ Sở": detected_campus_info['name'],
+                    "Thời Gian": now_vn.strftime("%Y-%m-%d %H:%M:%S"),
+                    "Thao Tác": action_type,
+                    "Khoảng Cách (m)": round(curr_dist, 1),
+                    "Địa Chỉ IP": "N/A",
+                    "Trạng Thái": "Đúng giờ",
+                    "Số Phút Trễ": 0,
+                    "Số Phút Về Sớm": 0,
+                    "Ghi Chú": f"[{study_type}] Tiết {start_lesson}-{end_lesson}"
+                }
+                ok, err = save_to_firebase("LichSu_SV", record_data)
+                if ok:
+                    st.success(f"🎉 ĐIỂM DANH THÀNH CÔNG: {fetched_name} ({input_id}) lúc {now_vn.strftime('%H:%M:%S')}!")
+                else:
+                    st.error(f"Lỗi gửi dữ liệu: {err}")
 
-            can_proceed = True
-            
-            # --- LUẬT QUY ĐỊNH GIỜ & BÙ TRỄ ---
-            if user_role in ["Giảng viên", "Sinh viên"]:
-                s_h, s_m = lesson_schedule[start_lesson]["start"]
-                e_h, e_m = lesson_schedule[end_lesson]["end"]
-                sched_start = now_vn.replace(hour=s_h, minute=s_m, second=0, microsecond=0)
-                sched_end_base = now_vn.replace(hour=e_h, minute=e_m, second=0, microsecond=0)
+            # --- LUỒNG GIẢNG VIÊN / VIÊN CHỨC ---
             else:
+                user_records = get_user_records_from_firebase(target_node, input_id)
+                last_action, last_time_str = None, ""
+                if user_records:
+                    last_record = user_records[-1]
+                    last_action = str(last_record.get("Thao Tác", "")).strip()
+                    last_time_str = str(last_record.get("Thời Gian", ""))
+
                 if "Sáng" in vc_shift:
                     sched_start = now_vn.replace(hour=7, minute=0, second=0, microsecond=0)
                     sched_end_base = now_vn.replace(hour=11, minute=0, second=0, microsecond=0)
@@ -547,152 +542,55 @@ with tabs[0]:
                     sched_start = now_vn.replace(hour=13, minute=0, second=0, microsecond=0)
                     sched_end_base = now_vn.replace(hour=17, minute=0, second=0, microsecond=0)
 
-            late_minutes_raw = int((now_vn - sched_start).total_seconds() / 60)
-            
-            # LUẬT 5 PHÚT: Trễ <= 5 phút coi như ĐÚNG GIỜ
-            if late_minutes_raw > 5:
-                late_minutes_current = late_minutes_raw
-            else:
-                late_minutes_current = 0
+                late_mins = max(0, int((now_vn - sched_start).total_seconds() / 60))
+                late_actual = late_mins if late_mins > 5 else 0
+                sched_end = sched_end_base + timedelta(minutes=late_actual)
 
-            if user_role in ["Giảng viên", "Viên chức"]:
-                sched_end = sched_end_base + timedelta(minutes=late_minutes_current)
-            else:
-                sched_end = sched_end_base
-
-            # Tự động đóng ca nếu quên check-out
-            if action_type == "Vào ca (Check-in)" and last_action == "Vào ca (Check-in)":
-                try:
-                    last_time_dt = datetime.strptime(last_time_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone(timedelta(hours=7)))
-                    is_previous_shift = (last_time_dt.hour < 12 and now_vn.hour >= 12) or (last_time_dt.date() < now_vn.date())
-                    
-                    if is_previous_shift:
-                        if "Thực hành" in last_note:
-                            base_end_h, base_end_m = 11 if last_time_dt.hour < 12 else 17, 40
-                        elif "Lý thuyết" in last_note:
-                            base_end_h, base_end_m = 11 if last_time_dt.hour < 12 else 17, 20
-                        else:
-                            base_end_h, base_end_m = 11 if last_time_dt.hour < 12 else 17, 0
-
-                        auto_checkout_dt = last_time_dt.replace(hour=base_end_h, minute=base_end_m, second=0, microsecond=0)
-                        unit_sub_disp = f"{fetched_sub} ({selected_class})" if user_role == "Sinh viên" else fetched_sub
-
-                        auto_checkout_record = {
-                            "Mã Số": input_id,
-                            "Họ Và Tên": str(fetched_name),
-                            "Đối Tượng": user_role,
-                            "Đơn Vị": str(fetched_unit),
-                            "Bộ Môn - Lớp": str(shorten_unit_name(unit_sub_disp)),
-                            "Cơ Sở": "Không xác định (Tự động)",
-                            "Thời Gian": auto_checkout_dt.strftime("%Y-%m-%d %H:%M:%S"),
-                            "Thao Tác": "Ra ca (Check-out)",
-                            "Khoảng Cách (m)": 0.0,
-                            "Địa Chỉ IP": "N/A (Tự động)",
-                            "Trạng Thái": "Chưa Ra ca (Tự động đóng)",
-                            "Số Phút Trễ": 0,
-                            "Số Phút Về Sớm": 0,
-                            "Ghi Chú": "Vi phạm quy định: Không thực hiện Ra ca tại trường. Hệ thống tự động đóng ca."
-                        }
-                        save_to_firebase(target_node, auto_checkout_record)
-                        st.warning("Cảnh báo: Bạn đã không thực hiện 'Ra ca' cho ca trước! Hệ thống đã ghi nhận trạng thái 'Chưa Ra ca (Tự động đóng)' để mở ca mới.")
-                        last_action = "Ra ca (Check-out)"
-                except Exception:
-                    pass
-
-            # Kiểm tra quy tắc Ra ca / Vào ca
-            if can_proceed:
-                if user_role == "Viên chức" and action_type == "Vào ca (Check-in)":
-                    if now_vn > sched_start + timedelta(minutes=30):
-                        st.error(f"Từ chối điểm danh: Đã quá 30 phút so với giờ bắt đầu ca ({sched_start.strftime('%H:%M')})! Vui lòng sang Tab 'Báo nghỉ phép' để nộp đơn.")
-                        can_proceed = False
-
-            if can_proceed:
                 if action_type == "Ra ca (Check-out)":
                     if last_action != "Vào ca (Check-in)":
-                        st.error("Bạn chưa thực hiện Vào ca (Check-in) cho ca làm việc này!")
-                        can_proceed = False
-                    elif user_role == "Viên chức" and ("Ca Sáng" in vc_shift and "Sáng" not in last_note and "07:0" not in last_note):
-                        st.error("Cảnh báo: Lượt Vào ca trước đó của bạn thuộc Ca Chiều, không thể Ra ca cho Ca Sáng!")
-                        can_proceed = False
+                        st.error("Bạn chưa thực hiện Vào ca (Check-in)!")
                     elif now_vn < sched_end:
                         st.session_state["early_leave_pending"] = True
                         st.session_state["early_leave_mins"] = int((sched_end - now_vn).total_seconds() / 60)
-                        can_proceed = False
                         st.rerun()
-
-                elif action_type == "Vào ca (Check-in)":
-                    if last_action == "Vào ca (Check-in)":
-                        st.warning(f"Bạn đã Vào ca trước đó lúc `{last_time_str}`. Vui lòng thực hiện 'Ra ca (Check-out)' trước khi bắt đầu ca tiếp theo!")
-                        can_proceed = False
-
-            if can_proceed:
-                status = "Đúng giờ"
-                note = ""
-                unit_sub_display = f"{fetched_sub} ({selected_class})" if user_role == "Sinh viên" else fetched_sub
-                short_unit_display = shorten_unit_name(unit_sub_display)
-
-                if user_role in ["Giảng viên", "Sinh viên"]:
-                    if action_type == "Vào ca (Check-in)":
-                        if late_minutes_current > 0:
-                            status = "Vào trễ"
-                            if user_role == "Giảng viên":
-                                note = f"[{study_type}] Vào trễ {late_minutes_current} phút (Phải bù giờ đến {sched_end.strftime('%H:%M')}). Điểm danh lúc {now_vn.strftime('%H:%M')}."
-                            else:
-                                note = f"[{study_type}] Vào trễ {late_minutes_current} phút (Ghi nhận chấm điểm rèn luyện). Điểm danh lúc {now_vn.strftime('%H:%M')}."
-                        else:
-                            note = f"[{study_type}] Lịch Tiết {start_lesson}-{end_lesson} ({sched_start.strftime('%H:%M')} - {sched_end_base.strftime('%H:%M')})"
                     else:
-                        note = f"[{study_type}] Hoàn thành ca Tiết {start_lesson}-{end_lesson}"
+                        rec = {
+                            "Mã Số": input_id, "Họ Và Tên": str(fetched_name), "Đối Tượng": user_role,
+                            "Đơn Vị": str(fetched_unit), "Bộ Môn - Lớp": str(shorten_unit_name(fetched_sub)),
+                            "Cơ Sở": detected_campus_info['name'], "Thời Gian": now_vn.strftime("%Y-%m-%d %H:%M:%S"),
+                            "Thao Tác": action_type, "Khoảng Cách (m)": round(curr_dist, 1),
+                            "Địa Chỉ IP": "N/A", "Trạng Thái": "Đúng giờ", "Số Phút Trễ": 0, "Số Phút Về Sớm": 0,
+                            "Ghi Chú": f"Hoàn thành ca làm việc"
+                        }
+                        save_to_firebase(target_node, rec)
+                        st.success(f"✅ Ghi nhận Ra ca thành công cho {fetched_name}!")
                 else:
-                    if action_type == "Vào ca (Check-in)":
-                        if late_minutes_current > 0:
-                            status = "Đi trễ (Có bù giờ)"
-                            note = f"[{vc_shift}] Đi trễ {late_minutes_current} phút (Phải bù giờ đến {sched_end.strftime('%H:%M')})."
-                        else:
-                            note = f"[{vc_shift}] Đúng giờ ({sched_start.strftime('%H:%M')} - {sched_end_base.strftime('%H:%M')})"
-                    else:
-                        note = f"[{vc_shift}] Hoàn thành ca làm việc"
-
-                record_data = {
-                    "Mã Số": input_id,
-                    "Họ Và Tên": str(fetched_name),
-                    "Đối Tượng": user_role,
-                    "Đơn Vị": str(fetched_unit),
-                    "Bộ Môn - Lớp": str(short_unit_display),
-                    "Cơ Sở": campus_display_name,
-                    "Thời Gian": now_vn.strftime("%Y-%m-%d %H:%M:%S"),
-                    "Thao Tác": action_type,
-                    "Khoảng Cách (m)": round(curr_dist, 1),
-                    "Địa Chỉ IP": user_ip if user_ip else "N/A",
-                    "Trạng Thái": status,
-                    "Số Phút Trễ": late_minutes_current,
-                    "Số Phút Về Sớm": 0,
-                    "Ghi Chú": note
-                }
-                
-                success, err_msg = save_to_firebase(target_node, record_data)
-                if success:
-                    st.success(f"Ghi nhận thành công cho {user_role} {fetched_name} tại {detected_campus_info['name']} lúc {now_vn.strftime('%H:%M:%S')}. Trạng thái: {status}")
-                else:
-                    st.error(f"Lỗi kết nối Firebase: {err_msg}")
+                    status = "Đi trễ (Có bù giờ)" if late_actual > 0 else "Đúng giờ"
+                    rec = {
+                        "Mã Số": input_id, "Họ Và Tên": str(fetched_name), "Đối Tượng": user_role,
+                        "Đơn Vị": str(fetched_unit), "Bộ Môn - Lớp": str(shorten_unit_name(fetched_sub)),
+                        "Cơ Sở": detected_campus_info['name'], "Thời Gian": now_vn.strftime("%Y-%m-%d %H:%M:%S"),
+                        "Thao Tác": action_type, "Khoảng Cách (m)": round(curr_dist, 1),
+                        "Địa Chỉ IP": "N/A", "Trạng Thái": status, "Số Phút Trễ": late_actual, "Số Phút Về Sớm": 0,
+                        "Ghi Chú": f"Vào ca lúc {now_vn.strftime('%H:%M')}"
+                    }
+                    save_to_firebase(target_node, rec)
+                    st.success(f"✅ Điểm danh Vào ca thành công cho {fetched_name} ({status})!")
 
 # ----------------- TAB 2: BÁO NGHỈ PHÉP -----------------
 with tabs[1]:
-    mc_user_role = st.radio("Chọn đối tượng nộp đơn:", ["Giảng viên", "Viên chức", "Sinh viên"], horizontal=True, key="mc_role_radio")
-    
-    mc_expected_len = 9 if mc_user_role == "Sinh viên" else 8
-    mc_placeholder = "Ví dụ: 411265001" if mc_user_role == "Sinh viên" else "Ví dụ: 06071234"
+    mc_user_role = st.radio("Chọn đối tượng nộp đơn:", ["Sinh viên", "Giảng viên", "Viên chức"], index=0, horizontal=True, key="mc_role_radio")
     
     mc_class = ""
     if mc_user_role == "Sinh viên":
         mc_class = st.selectbox("Chọn Lớp sinh viên:", CLASS_LIST, key="mc_class_select")
         
-    mc_id = st.text_input(f"Nhập Mã số ({mc_expected_len} chữ số):", max_chars=mc_expected_len, placeholder=mc_placeholder, key="mc_id_input").strip()
+    mc_id = st.text_input("Nhập Mã số (tối đa 9 chữ số):", max_chars=9, placeholder="Nhập MSSV hoặc Mã CBVC", key="mc_id_input").strip()
     
     mc_fetched_name = ""
     mc_fetched_unit = ""
     
-    if len(mc_id) == mc_expected_len:
+    if len(mc_id) >= 6:
         if mc_user_role in ["Giảng viên", "Viên chức"]:
             cbvc_df = read_excel_from_onedrive("OGSM/ATTENDANCE/DATA/CBVC.xlsx", sheet_name="Nhansu")
             if not cbvc_df.empty:
@@ -700,8 +598,9 @@ with tabs[1]:
                 col_name = cbvc_df.columns[1] if len(cbvc_df.columns) > 1 else cbvc_df.columns[0]
                 col_unit = cbvc_df.columns[2] if len(cbvc_df.columns) > 2 else ""
                 
-                cbvc_df["CLEAN_ID"] = cbvc_df[col_msvc].astype(str).str.split('.').str[0].str.strip().str.replace('\xa0', '').str.zfill(8)
-                match = cbvc_df[cbvc_df["CLEAN_ID"] == mc_id]
+                raw_col = cbvc_df[col_msvc].astype(str).str.split('.').str[0].str.strip().str.replace('\xa0', '')
+                cbvc_df["CLEAN_ID"] = raw_col
+                match = cbvc_df[(cbvc_df["CLEAN_ID"] == mc_id) | (cbvc_df["CLEAN_ID"] == mc_id.zfill(8))]
                 if not match.empty:
                     mc_fetched_name = str(match.iloc[0][col_name]).strip()
                     mc_fetched_unit = str(match.iloc[0][col_unit]).strip() if col_unit else ""
@@ -712,14 +611,15 @@ with tabs[1]:
                 col_name = sv_df.columns[1] if len(sv_df.columns) > 1 else sv_df.columns[0]
                 col_unit = sv_df.columns[2] if len(sv_df.columns) > 2 else ""
                 
-                sv_df["CLEAN_ID"] = sv_df[col_mssv].astype(str).str.split('.').str[0].str.strip().str.replace('\xa0', '').str.zfill(9)
-                match = sv_df[sv_df["CLEAN_ID"] == mc_id]
+                raw_col = sv_df[col_mssv].astype(str).str.split('.').str[0].str.strip().str.replace('\xa0', '')
+                sv_df["CLEAN_ID"] = raw_col
+                match = sv_df[(sv_df["CLEAN_ID"] == mc_id) | (sv_df["CLEAN_ID"] == mc_id.zfill(9))]
                 if not match.empty:
                     mc_fetched_name = str(match.iloc[0][col_name]).strip()
                     unit_raw = str(match.iloc[0][col_unit]).strip() if col_unit else ""
                     mc_fetched_unit = f"{unit_raw} - Lớp {mc_class}" if unit_raw else f"Lớp {mc_class}"
 
-    display_name = mc_fetched_name if mc_fetched_name else ("Mã số chưa chính xác" if len(mc_id) == mc_expected_len else "")
+    display_name = mc_fetched_name if mc_fetched_name else ("Chưa tìm thấy mã số trong danh sách" if len(mc_id) >= 6 else "")
     display_unit = mc_fetched_unit if mc_fetched_unit else ""
 
     col_mc1, col_mc2 = st.columns(2)
@@ -733,7 +633,7 @@ with tabs[1]:
     is_morning_attended = False
     is_afternoon_attended = False
 
-    if len(mc_id) == mc_expected_len and mc_fetched_name:
+    if len(mc_id) >= 6 and mc_fetched_name:
         node_map_role = {"Giảng viên": "LichSu_GV", "Viên chức": "LichSu_VC", "Sinh viên": "LichSu_SV"}
         target_mc_node = node_map_role.get(mc_user_role, "LichSu_SV")
         today_str = now_vn.strftime("%Y-%m-%d")
@@ -760,8 +660,8 @@ with tabs[1]:
         btn_submit = st.form_submit_button("GỬI YÊU CẦU MINH CHỨNG")
         
         if btn_submit:
-            if len(mc_id) != mc_expected_len or not mc_fetched_name:
-                st.error(f"Mã số {mc_expected_len} chữ số không tồn tại trong danh sách dữ liệu trên OneDrive! Vui lòng kiểm tra lại.")
+            if len(mc_id) < 6 or not mc_fetched_name:
+                st.error("Mã số chưa chính xác hoặc không có trong danh sách dữ liệu trên OneDrive!")
             elif not mc_reason:
                 st.error("Vui lòng nhập lý do chi tiết!")
             elif mc_type == "Nghỉ phép Cả Ngày" and has_attended_today:
@@ -856,7 +756,7 @@ with tabs[2]:
         
         # --- CHỨC NĂNG 1: NHẬT KÝ CHI TIẾT & BIỂU ĐỒ ---
         if view_mode == "Nhật ký điểm danh chi tiết & Biểu đồ":
-            selected_report_role = st.selectbox("Chọn nhóm dữ liệu xem báo cáo:", ["Giảng viên", "Viên chức", "Sinh viên"], key="report_role_select")
+            selected_report_role = st.selectbox("Chọn nhóm dữ liệu xem báo cáo:", ["Sinh viên", "Giảng viên", "Viên chức"], key="report_role_select")
             node_map_report = {"Giảng viên": "LichSu_GV", "Viên chức": "LichSu_VC", "Sinh viên": "LichSu_SV"}
             history_df = read_from_firebase(node_map_report[selected_report_role])
             
@@ -956,7 +856,7 @@ with tabs[2]:
 
         # --- CHỨC NĂNG 2: BÁO CÁO THI ĐUA THEO THÁNG ---
         elif view_mode == "Báo cáo Thống kê Thi đua / Đèn Rèn luyện (Theo Tháng)":
-            selected_report_role = st.selectbox("Chọn đối tượng:", ["Giảng viên", "Viên chức", "Sinh viên"], key="stat_role_select")
+            selected_report_role = st.selectbox("Chọn đối tượng:", ["Sinh viên", "Giảng viên", "Viên chức"], key="stat_role_select")
             
             node_map_report = {"Giảng viên": "LichSu_GV", "Viên chức": "LichSu_VC", "Sinh viên": "LichSu_SV"}
             history_df = read_from_firebase(node_map_report[selected_report_role])
