@@ -76,6 +76,23 @@ st.markdown("""
         border-bottom: 2px solid #1877F2;
         padding-bottom: 6px;
     }
+
+    button[data-testid="baseButton-primary"] {
+        background-color: #E41E3F !important;
+        border: none !important;
+        color: #FFFFFF !important;
+        -webkit-text-fill-color: #FFFFFF !important;
+        font-weight: 700 !important;
+        font-size: 16px !important;
+        letter-spacing: 0.5px !important;
+    }
+    button[data-testid="baseButton-primary"] * {
+        color: #FFFFFF !important;
+        -webkit-text-fill-color: #FFFFFF !important;
+    }
+    button[data-testid="baseButton-primary"]:hover {
+        background-color: #C21332 !important;
+    }
 </style>
 
 <div class="app-title-custom">📍 HỆ THỐNG ĐIỂM DANH TRỰC TUYẾN</div>
@@ -287,9 +304,6 @@ if "early_leave_mins" not in st.session_state:
 if "early_leave_data" not in st.session_state:
     st.session_state["early_leave_data"] = {}
 
-if "verified_user" not in st.session_state:
-    st.session_state["verified_user"] = None
-
 # ----------------- TAB 1: ĐIỂM DANH -----------------
 with tabs[0]:
     now_vn = get_vietnam_now()
@@ -311,74 +325,55 @@ with tabs[0]:
     with c_col1:
         user_role = st.radio("Chọn đối tượng:", ["Sinh viên", "Giảng viên", "Viên chức"], index=0, horizontal=True)
         
-        c_id_in, c_id_btn = st.columns([2.5, 1.5])
-        with c_id_in:
-            input_id = st.text_input("Mã số (MSSV / Mã CBVC):", max_chars=9, placeholder="Tối đa 9 số", key="input_id_field").strip()
-        with c_id_btn:
-            st.write("")
-            st.write("")
-            btn_check = st.button("🔍 KIỂM TRA", use_container_width=True)
+        input_id = st.text_input(
+            "Mã số (MSSV / Mã CBVC):", 
+            max_chars=9, 
+            placeholder="Nhập mã số và nhấn Enter...", 
+            key="input_id_field"
+        ).strip()
 
-        if btn_check:
-            clean_id = input_id.strip()
-            if len(clean_id) < 6:
-                st.error("Mã số không hợp lệ!")
-                st.session_state["verified_user"] = None
+        fetched_name, fetched_unit, fetched_sub, fetched_class, fetched_course = "", "", "", "", ""
+        if len(input_id) >= 6:
+            clean_id = input_id
+            if user_role == "Sinh viên":
+                target_df = read_excel_from_onedrive("OGSM/ATTENDANCE/DATA/SV/K26.xlsx")
+                if not target_df.empty:
+                    col_mssv = target_df.columns[0]
+                    col_name = target_df.columns[1] if len(target_df.columns) > 1 else target_df.columns[0]
+                    col_class = target_df.columns[2] if len(target_df.columns) > 2 else ""
+                    col_unit = target_df.columns[3] if len(target_df.columns) > 3 else ""
+                    col_sub = target_df.columns[4] if len(target_df.columns) > 4 else ""
+                    col_course = target_df.columns[5] if len(target_df.columns) > 5 else ""
+
+                    target_df["CLEAN_ID"] = target_df[col_mssv].astype(str).str.strip().str.replace('\xa0', '').str.replace('.0', '', regex=False)
+                    match = target_df[(target_df["CLEAN_ID"] == clean_id) | (target_df["CLEAN_ID"] == clean_id.zfill(9))]
+                    if not match.empty:
+                        fetched_name = match.iloc[0][col_name]
+                        fetched_class = match.iloc[0][col_class] if col_class else ""
+                        fetched_unit = match.iloc[0][col_unit] if col_unit else ""
+                        fetched_sub = match.iloc[0][col_sub] if col_sub else ""
+                        fetched_course = match.iloc[0][col_course] if col_course else ""
             else:
-                if user_role == "Sinh viên":
-                    target_df = read_excel_from_onedrive("OGSM/ATTENDANCE/DATA/SV/K26.xlsx")
-                    if not target_df.empty:
-                        col_mssv = target_df.columns[0]
-                        col_name = target_df.columns[1] if len(target_df.columns) > 1 else target_df.columns[0]
-                        col_class = target_df.columns[2] if len(target_df.columns) > 2 else ""
-                        col_unit = target_df.columns[3] if len(target_df.columns) > 3 else ""
-                        col_sub = target_df.columns[4] if len(target_df.columns) > 4 else ""
-                        col_course = target_df.columns[5] if len(target_df.columns) > 5 else ""
+                target_df = read_excel_from_onedrive("OGSM/ATTENDANCE/DATA/CBVC.xlsx", sheet_name="Nhansu")
+                if not target_df.empty:
+                    col_msvc = target_df.columns[0]
+                    col_name = target_df.columns[1] if len(target_df.columns) > 1 else target_df.columns[0]
+                    col_unit = target_df.columns[2] if len(target_df.columns) > 2 else ""
+                    col_sub = target_df.columns[3] if len(target_df.columns) > 3 else ""
 
-                        target_df["CLEAN_ID"] = target_df[col_mssv].astype(str).str.strip().str.replace('\xa0', '').str.replace('.0', '', regex=False)
-                        match = target_df[(target_df["CLEAN_ID"] == clean_id) | (target_df["CLEAN_ID"] == clean_id.zfill(9))]
-                        if not match.empty:
-                            st.session_state["verified_user"] = {
-                                "id": clean_id,
-                                "name": match.iloc[0][col_name],
-                                "class": match.iloc[0][col_class] if col_class else "",
-                                "unit": match.iloc[0][col_unit] if col_unit else "",
-                                "sub": match.iloc[0][col_sub] if col_sub else "",
-                                "course": match.iloc[0][col_course] if col_course else ""
-                            }
-                        else:
-                            st.error(f"Không tìm thấy MSSV '{clean_id}' trong danh sách K26!")
-                            st.session_state["verified_user"] = None
-                else:
-                    target_df = read_excel_from_onedrive("OGSM/ATTENDANCE/DATA/CBVC.xlsx", sheet_name="Nhansu")
-                    if not target_df.empty:
-                        col_msvc = target_df.columns[0]
-                        col_name = target_df.columns[1] if len(target_df.columns) > 1 else target_df.columns[0]
-                        col_unit = target_df.columns[2] if len(target_df.columns) > 2 else ""
-                        col_sub = target_df.columns[3] if len(target_df.columns) > 3 else ""
+                    target_df["CLEAN_ID"] = target_df[col_msvc].astype(str).str.strip().str.replace('\xa0', '').str.replace('.0', '', regex=False)
+                    match = target_df[(target_df["CLEAN_ID"] == clean_id) | (target_df["CLEAN_ID"] == clean_id.zfill(8))]
+                    if not match.empty:
+                        fetched_name = match.iloc[0][col_name]
+                        fetched_unit = match.iloc[0][col_unit] if col_unit else ""
+                        fetched_sub = match.iloc[0][col_sub] if col_sub else ""
 
-                        target_df["CLEAN_ID"] = target_df[col_msvc].astype(str).str.strip().str.replace('\xa0', '').str.replace('.0', '', regex=False)
-                        match = target_df[(target_df["CLEAN_ID"] == clean_id) | (target_df["CLEAN_ID"] == clean_id.zfill(8))]
-                        if not match.empty:
-                            st.session_state["verified_user"] = {
-                                "id": clean_id,
-                                "name": match.iloc[0][col_name],
-                                "class": "",
-                                "unit": match.iloc[0][col_unit] if col_unit else "",
-                                "sub": match.iloc[0][col_sub] if col_sub else "",
-                                "course": ""
-                            }
-                        else:
-                            st.error(f"Không tìm thấy Mã CBVC '{clean_id}' trong danh sách!")
-                            st.session_state["verified_user"] = None
-
-        user_info = st.session_state["verified_user"]
-        st.text_input("Họ và tên:", value=user_info["name"] if user_info else "", disabled=True)
+        st.text_input("Họ và tên:", value=fetched_name if fetched_name else ("Mã số chưa chính xác" if len(input_id) >= 6 else ""), disabled=True)
         if user_role == "Sinh viên":
-            st.text_input("Lớp:", value=user_info["class"] if user_info else "", disabled=True)
-            st.text_input("Tên học phần:", value=user_info["course"] if user_info else "", disabled=True)
-        st.text_input("Đơn vị (Trường / Khoa):", value=user_info["unit"] if user_info else "", disabled=True)
-        st.text_input("Bộ môn:", value=user_info["sub"] if user_info else "", disabled=True)
+            st.text_input("Lớp:", value=fetched_class, disabled=True)
+            st.text_input("Tên học phần:", value=fetched_course, disabled=True)
+        st.text_input("Đơn vị (Trường / Khoa):", value=fetched_unit, disabled=True)
+        st.text_input("Bộ môn:", value=fetched_sub, disabled=True)
 
         study_type = st.radio("Hình thức học (GV / SV):", ["Lý thuyết", "Thực hành"], horizontal=True)
         c_t1, c_t2 = st.columns(2)
@@ -450,22 +445,16 @@ with tabs[0]:
                 st.info("Đã hủy thao tác Ra ca sớm.")
 
     elif btn_confirm:
+        clean_id = input_id.strip()
         if is_out_of_hours:
             st.error("Hệ thống đã đóng. Hiện tại nằm ngoài khung giờ làm việc / học tập quy định (06:00 - 18:00)!")
-        elif not st.session_state["verified_user"]:
-            st.error("Vui lòng nhập Mã số và nhấn nút '🔍 KIỂM TRA' để xác thực danh tính trước khi điểm danh!")
+        elif len(clean_id) < 6 or not fetched_name:
+            st.error("Vui lòng nhập Mã số hợp lệ và nhấn Enter để xác thực thông tin trước khi điểm danh!")
         elif user_lat is None or user_lng is None:
             st.warning("⚠️ Chưa nhận diện được GPS! Vui lòng bật vị trí trên điện thoại, chọn 'Cho phép' và bấm lại.")
         elif curr_dist > MAX_ALLOWED_RADIUS:
             st.error(f"Điểm danh thất bại: Bạn đang cách {detected_campus_info['name']} {int(curr_dist)}m (Vượt quá bán kính 150m cho phép)!")
         else:
-            user_data = st.session_state["verified_user"]
-            clean_id = user_data["id"]
-            fetched_name = user_data["name"]
-            fetched_class = user_data["class"]
-            fetched_unit = user_data["unit"]
-            fetched_sub = user_data["sub"]
-
             target_node = "LichSu_SV" if user_role == "Sinh viên" else ("LichSu_GV" if user_role == "Giảng viên" else "LichSu_VC")
             sub_display = f"{fetched_sub} ({fetched_class})" if user_role == "Sinh viên" and fetched_class else fetched_sub
 
@@ -602,7 +591,7 @@ with tabs[0]:
 # ----------------- TAB 2: BÁO NGHỈ PHÉP -----------------
 with tabs[1]:
     mc_user_role = st.radio("Chọn đối tượng nộp đơn:", ["Sinh viên", "Giảng viên", "Viên chức"], index=0, horizontal=True, key="mc_role_radio")
-    mc_id = st.text_input("Nhập Mã số (tối đa 9 chữ số):", max_chars=9, placeholder="Nhập MSSV hoặc Mã CBVC", key="mc_id_input").strip()
+    mc_id = st.text_input("Nhập Mã số (tối đa 9 chữ số):", max_chars=9, placeholder="Nhập MSSV hoặc Mã CBVC và nhấn Enter...", key="mc_id_input").strip()
     
     mc_fetched_name = ""
     mc_fetched_unit = ""
