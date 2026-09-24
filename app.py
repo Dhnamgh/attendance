@@ -287,7 +287,6 @@ if "early_leave_mins" not in st.session_state:
 if "early_leave_data" not in st.session_state:
     st.session_state["early_leave_data"] = {}
 
-# Session lưu trữ thông tin sau khi bấm "Kiểm tra"
 if "verified_user" not in st.session_state:
     st.session_state["verified_user"] = None
 
@@ -296,7 +295,6 @@ with tabs[0]:
     now_vn = get_vietnam_now()
     is_out_of_hours = (now_vn.hour >= 18) or (now_vn.hour < 6)
 
-    # 1. TÍNH TOÁN LỌC TIẾT ĐÃ QUA THEO THỜI GIAN THỰC[cite: 1]
     schedule_ref = LESSON_TIMES_THEORY
     valid_start_lessons = []
     for t in range(1, 11):
@@ -321,7 +319,6 @@ with tabs[0]:
             st.write("")
             btn_check = st.button("🔍 KIỂM TRA", use_container_width=True)
 
-        # Xử lý nút kiểm tra thông tin đối soát
         if btn_check:
             clean_id = input_id.strip()
             if len(clean_id) < 6:
@@ -375,7 +372,6 @@ with tabs[0]:
                             st.error(f"Không tìm thấy Mã CBVC '{clean_id}' trong danh sách!")
                             st.session_state["verified_user"] = None
 
-        # Hiển thị các ô thông tin để đối soát trực quan[cite: 1]
         user_info = st.session_state["verified_user"]
         st.text_input("Họ và tên:", value=user_info["name"] if user_info else "", disabled=True)
         if user_role == "Sinh viên":
@@ -431,38 +427,37 @@ with tabs[0]:
         st.write("")
         btn_confirm = st.button("📍 XÁC NHẬN ĐIỂM DANH", use_container_width=True, type="primary")
 
-    # --- KHUNG XỬ LÝ HỘP THOẠI XÁC NHẬN RA CA SỚM[cite: 1] ---
     if st.session_state["early_leave_pending"]:
-        st.warning(f"⚠️ CẢNH BÁO: Bạn đang thực hiện Ra ca sớm **{st.session_state['early_leave_mins']} phút** so với giờ quy định!")[cite: 1]
-        st.write("Bạn có chắc chắn muốn xác nhận Ra ca sớm không?")[cite: 1]
+        st.warning(f"⚠️ CẢNH BÁO: Bạn đang thực hiện Ra ca sớm **{st.session_state['early_leave_mins']} phút** so với giờ quy định!")
+        st.write("Bạn có chắc chắn muốn xác nhận Ra ca sớm không?")
         
         c_confirm1, c_confirm2 = st.columns(2)
         with c_confirm1:
-            if st.button("CÓ, XÁC NHẬN RA CA SỚM", key="btn_yes_early", use_container_width=True):[cite: 1]
+            if st.button("CÓ, XÁC NHẬN RA CA SỚM", key="btn_yes_early", use_container_width=True):
                 rec = st.session_state["early_leave_data"]
                 node = "LichSu_SV" if rec["Đối Tượng"] == "Sinh viên" else ("LichSu_GV" if rec["Đối Tượng"] == "Giảng viên" else "LichSu_VC")
                 save_to_firebase(node, rec)
-                st.success(f"✅ ĐÃ GHI NHẬN RA CA SỚM THÀNH CÔNG cho {rec['Đối Tượng']} {rec['Họ Và Tên']} (Sớm {st.session_state['early_leave_mins']} phút)!")[cite: 1]
+                st.success(f"✅ ĐÃ GHI NHẬN RA CA SỚM THÀNH CÔNG cho {rec['Đối Tượng']} {rec['Họ Và Tên']} (Sớm {st.session_state['early_leave_mins']} phút)!")
                 st.session_state["early_leave_pending"] = False
                 st.session_state["early_leave_mins"] = 0
                 st.session_state["early_leave_data"] = {}
 
         with c_confirm2:
-            if st.button("KHÔNG, TIẾP TỤC Ở LẠI", key="btn_no_early", use_container_width=True):[cite: 1]
+            if st.button("KHÔNG, TIẾP TỤC Ở LẠI", key="btn_no_early", use_container_width=True):
                 st.session_state["early_leave_pending"] = False
                 st.session_state["early_leave_mins"] = 0
                 st.session_state["early_leave_data"] = {}
-                st.info("Đã hủy thao tác Ra ca sớm.")[cite: 1]
+                st.info("Đã hủy thao tác Ra ca sớm.")
 
     elif btn_confirm:
         if is_out_of_hours:
-            st.error("Hệ thống đã đóng. Hiện tại nằm ngoài khung giờ làm việc / học tập quy định (06:00 - 18:00)!")[cite: 1]
+            st.error("Hệ thống đã đóng. Hiện tại nằm ngoài khung giờ làm việc / học tập quy định (06:00 - 18:00)!")
         elif not st.session_state["verified_user"]:
             st.error("Vui lòng nhập Mã số và nhấn nút '🔍 KIỂM TRA' để xác thực danh tính trước khi điểm danh!")
         elif user_lat is None or user_lng is None:
             st.warning("⚠️ Chưa nhận diện được GPS! Vui lòng bật vị trí trên điện thoại, chọn 'Cho phép' và bấm lại.")
         elif curr_dist > MAX_ALLOWED_RADIUS:
-            st.error(f"Điểm danh thất bại: Bạn đang cách {detected_campus_info['name']} {int(curr_dist)}m (Vượt quá bán kính 150m cho phép)!")[cite: 1]
+            st.error(f"Điểm danh thất bại: Bạn đang cách {detected_campus_info['name']} {int(curr_dist)}m (Vượt quá bán kính 150m cho phép)!")
         else:
             user_data = st.session_state["verified_user"]
             clean_id = user_data["id"]
@@ -474,7 +469,6 @@ with tabs[0]:
             target_node = "LichSu_SV" if user_role == "Sinh viên" else ("LichSu_GV" if user_role == "Giảng viên" else "LichSu_VC")
             sub_display = f"{fetched_sub} ({fetched_class})" if user_role == "Sinh viên" and fetched_class else fetched_sub
 
-            # Truy vấn lịch sử gần nhất qua Index Firebase[cite: 1]
             user_records = get_user_records_from_firebase(target_node, clean_id)
             last_action, last_time_str = None, ""
             if user_records:
@@ -482,7 +476,6 @@ with tabs[0]:
                 last_action = str(last_record.get("Thao Tác", "")).strip()
                 last_time_str = str(last_record.get("Thời Gian", ""))
 
-            # Xác định khung giờ ca[cite: 1]
             if user_role in ["Sinh viên", "Giảng viên"]:
                 sched = LESSON_TIMES_PRACTICE if study_type == "Thực hành" else LESSON_TIMES_THEORY
                 s_h, s_m = sched[start_lesson]["start"]
@@ -498,23 +491,22 @@ with tabs[0]:
                     sched_end_base = now_vn.replace(hour=17, minute=0, second=0, microsecond=0)
 
             late_mins_raw = int((now_vn - sched_start).total_seconds() / 60)
-            late_actual = late_mins_raw if late_mins_raw > 5 else 0[cite: 1]
+            late_actual = late_mins_raw if late_mins_raw > 5 else 0
             
             if user_role in ["Giảng viên", "Viên chức"]:
-                sched_end = sched_end_base + timedelta(minutes=late_actual)[cite: 1]
+                sched_end = sched_end_base + timedelta(minutes=late_actual)
             else:
-                sched_end = sched_end_base[cite: 1]
+                sched_end = sched_end_base
 
             can_proceed = True
 
-            # Tự động đóng ca nếu quên ra ca ca trước[cite: 1]
-            if action_type == "Vào ca (Check-in)" and last_action == "Vào ca (Check-in)":[cite: 1]
+            if action_type == "Vào ca (Check-in)" and last_action == "Vào ca (Check-in)":
                 try:
-                    last_time_dt = datetime.strptime(last_time_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone(timedelta(hours=7)))[cite: 1]
-                    is_prev = (last_time_dt.hour < 12 and now_vn.hour >= 12) or (last_time_dt.date() < now_vn.date())[cite: 1]
+                    last_time_dt = datetime.strptime(last_time_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone(timedelta(hours=7)))
+                    is_prev = (last_time_dt.hour < 12 and now_vn.hour >= 12) or (last_time_dt.date() < now_vn.date())
                     if is_prev:
-                        base_end_h = 11 if last_time_dt.hour < 12 else 17[cite: 1]
-                        auto_out_dt = last_time_dt.replace(hour=base_end_h, minute=0, second=0, microsecond=0)[cite: 1]
+                        base_end_h = 11 if last_time_dt.hour < 12 else 17
+                        auto_out_dt = last_time_dt.replace(hour=base_end_h, minute=0, second=0, microsecond=0)
                         auto_rec = {
                             "Mã Số": clean_id,
                             "Họ Và Tên": str(fetched_name),
@@ -530,23 +522,22 @@ with tabs[0]:
                             "Số Phút Trễ": 0,
                             "Số Phút Về Sớm": 0,
                             "Ghi Chú": "Vi phạm quy định: Không thực hiện Ra ca. Hệ thống tự động đóng ca."
-                        }[cite: 1]
-                        save_to_firebase(target_node, auto_rec)[cite: 1]
-                        st.warning("Cảnh báo: Bạn đã không thực hiện 'Ra ca' cho ca trước! Hệ thống đã ghi nhận trạng thái 'Chưa Ra ca (Tự động đóng)' để mở ca mới.")[cite: 1]
-                        last_action = "Ra ca (Check-out)"[cite: 1]
+                        }
+                        save_to_firebase(target_node, auto_rec)
+                        st.warning("Cảnh báo: Bạn đã không thực hiện 'Ra ca' cho ca trước! Hệ thống đã ghi nhận trạng thái 'Chưa Ra ca (Tự động đóng)' để mở ca mới.")
+                        last_action = "Ra ca (Check-out)"
                 except Exception:
                     pass
 
-            # Kiểm tra ra ca / vào ca[cite: 1]
             if can_proceed:
-                if action_type == "Ra ca (Check-out)":[cite: 1]
-                    if last_action != "Vào ca (Check-in)":[cite: 1]
-                        st.error("Bạn chưa thực hiện Vào ca (Check-in) cho ca học / làm việc này!")[cite: 1]
+                if action_type == "Ra ca (Check-out)":
+                    if last_action != "Vào ca (Check-in)":
+                        st.error("Bạn chưa thực hiện Vào ca (Check-in) cho ca học / làm việc này!")
                         can_proceed = False
-                    elif now_vn < sched_end:[cite: 1]
-                        early_mins = int((sched_end - now_vn).total_seconds() / 60)[cite: 1]
-                        st.session_state["early_leave_pending"] = True[cite: 1]
-                        st.session_state["early_leave_mins"] = early_mins[cite: 1]
+                    elif now_vn < sched_end:
+                        early_mins = int((sched_end - now_vn).total_seconds() / 60)
+                        st.session_state["early_leave_pending"] = True
+                        st.session_state["early_leave_mins"] = early_mins
                         st.session_state["early_leave_data"] = {
                             "Mã Số": clean_id,
                             "Họ Và Tên": str(fetched_name),
@@ -562,27 +553,27 @@ with tabs[0]:
                             "Số Phút Trễ": 0,
                             "Số Phút Về Sớm": early_mins,
                             "Ghi Chú": f"Xác nhận Ra ca sớm {early_mins} phút."
-                        }[cite: 1]
+                        }
                         can_proceed = False
-                        st.rerun()[cite: 1]
+                        st.rerun()
 
-                elif action_type == "Vào ca (Check-in)":[cite: 1]
-                    if last_action == "Vào ca (Check-in)":[cite: 1]
-                        st.warning(f"Bạn đã Vào ca trước đó lúc `{last_time_str}`. Vui lòng thực hiện 'Ra ca (Check-out)' trước khi bắt đầu ca tiếp theo!")[cite: 1]
+                elif action_type == "Vào ca (Check-in)":
+                    if last_action == "Vào ca (Check-in)":
+                        st.warning(f"Bạn đã Vào ca trước đó lúc `{last_time_str}`. Vui lòng thực hiện 'Ra ca (Check-out)' trước khi bắt đầu ca tiếp theo!")
                         can_proceed = False
 
             if can_proceed:
-                status = "Đúng giờ"[cite: 1]
-                note_text = ""[cite: 1]
+                status = "Đúng giờ"
+                note_text = ""
 
-                if action_type == "Vào ca (Check-in)":[cite: 1]
+                if action_type == "Vào ca (Check-in)":
                     if late_actual > 0:
-                        status = "Vào trễ" if user_role == "Sinh viên" else "Đi trễ (Có bù giờ)"[cite: 1]
+                        status = "Vào trễ" if user_role == "Sinh viên" else "Đi trễ (Có bù giờ)"
                         note_text = f"Vào trễ {late_actual} phút lúc {now_vn.strftime('%H:%M')}"
                     else:
-                        note_text = f"Đúng giờ ({sched_start.strftime('%H:%M')} - {sched_end_base.strftime('%H:%M')})"[cite: 1]
+                        note_text = f"Đúng giờ ({sched_start.strftime('%H:%M')} - {sched_end_base.strftime('%H:%M')})"
                 else:
-                    note_text = f"Hoàn thành ca lúc {now_vn.strftime('%H:%M')}"[cite: 1]
+                    note_text = f"Hoàn thành ca lúc {now_vn.strftime('%H:%M')}"
 
                 record_data = {
                     "Mã Số": clean_id,
@@ -599,9 +590,9 @@ with tabs[0]:
                     "Số Phút Trễ": late_actual if action_type == "Vào ca (Check-in)" else 0,
                     "Số Phút Về Sớm": 0,
                     "Ghi Chú": note_text
-                }[cite: 1]
+                }
                 
-                ok, err = save_to_firebase(target_node, record_data)[cite: 1]
+                ok, err = save_to_firebase(target_node, record_data)
                 if ok:
                     st.balloons()
                     st.success(f"🎉 GHI NHẬN THÀNH CÔNG: {user_role} {fetched_name} - Trạng thái: {status} ({now_vn.strftime('%H:%M:%S')})!")
@@ -610,68 +601,68 @@ with tabs[0]:
 
 # ----------------- TAB 2: BÁO NGHỈ PHÉP -----------------
 with tabs[1]:
-    mc_user_role = st.radio("Chọn đối tượng nộp đơn:", ["Sinh viên", "Giảng viên", "Viên chức"], index=0, horizontal=True, key="mc_role_radio")[cite: 1]
-    mc_id = st.text_input("Nhập Mã số (tối đa 9 chữ số):", max_chars=9, placeholder="Nhập MSSV hoặc Mã CBVC", key="mc_id_input").strip()[cite: 1]
+    mc_user_role = st.radio("Chọn đối tượng nộp đơn:", ["Sinh viên", "Giảng viên", "Viên chức"], index=0, horizontal=True, key="mc_role_radio")
+    mc_id = st.text_input("Nhập Mã số (tối đa 9 chữ số):", max_chars=9, placeholder="Nhập MSSV hoặc Mã CBVC", key="mc_id_input").strip()
     
-    mc_fetched_name = ""[cite: 1]
-    mc_fetched_unit = ""[cite: 1]
+    mc_fetched_name = ""
+    mc_fetched_unit = ""
     
-    if len(mc_id) >= 6:[cite: 1]
-        if mc_user_role in ["Giảng viên", "Viên chức"]:[cite: 1]
-            cbvc_df = read_excel_from_onedrive("OGSM/ATTENDANCE/DATA/CBVC.xlsx", sheet_name="Nhansu")[cite: 1]
-            if not cbvc_df.empty:[cite: 1]
-                col_msvc = cbvc_df.columns[0][cite: 1]
-                col_name = cbvc_df.columns[1] if len(cbvc_df.columns) > 1 else cbvc_df.columns[0][cite: 1]
-                col_unit = cbvc_df.columns[2] if len(cbvc_df.columns) > 2 else ""[cite: 1]
+    if len(mc_id) >= 6:
+        if mc_user_role in ["Giảng viên", "Viên chức"]:
+            cbvc_df = read_excel_from_onedrive("OGSM/ATTENDANCE/DATA/CBVC.xlsx", sheet_name="Nhansu")
+            if not cbvc_df.empty:
+                col_msvc = cbvc_df.columns[0]
+                col_name = cbvc_df.columns[1] if len(cbvc_df.columns) > 1 else cbvc_df.columns[0]
+                col_unit = cbvc_df.columns[2] if len(cbvc_df.columns) > 2 else ""
                 
-                raw_col = cbvc_df[col_msvc].astype(str).str.split('.').str[0].str.strip().str.replace('\xa0', '')[cite: 1]
-                cbvc_df["CLEAN_ID"] = raw_col[cite: 1]
-                match = cbvc_df[(cbvc_df["CLEAN_ID"] == mc_id) | (cbvc_df["CLEAN_ID"] == mc_id.zfill(8))][cite: 1]
-                if not match.empty:[cite: 1]
-                    mc_fetched_name = str(match.iloc[0][col_name]).strip()[cite: 1]
-                    mc_fetched_unit = str(match.iloc[0][col_unit]).strip() if col_unit else ""[cite: 1]
+                raw_col = cbvc_df[col_msvc].astype(str).str.split('.').str[0].str.strip().str.replace('\xa0', '')
+                cbvc_df["CLEAN_ID"] = raw_col
+                match = cbvc_df[(cbvc_df["CLEAN_ID"] == mc_id) | (cbvc_df["CLEAN_ID"] == mc_id.zfill(8))]
+                if not match.empty:
+                    mc_fetched_name = str(match.iloc[0][col_name]).strip()
+                    mc_fetched_unit = str(match.iloc[0][col_unit]).strip() if col_unit else ""
         else:
             sv_df = read_excel_from_onedrive("OGSM/ATTENDANCE/DATA/SV/K26.xlsx")
-            if not sv_df.empty:[cite: 1]
-                col_mssv = sv_df.columns[0][cite: 1]
-                col_name = sv_df.columns[1] if len(sv_df.columns) > 1 else sv_df.columns[0][cite: 1]
+            if not sv_df.empty:
+                col_mssv = sv_df.columns[0]
+                col_name = sv_df.columns[1] if len(sv_df.columns) > 1 else sv_df.columns[0]
                 col_class = sv_df.columns[2] if len(sv_df.columns) > 2 else ""
-                col_unit = sv_df.columns[3] if len(sv_df.columns) > 3 else ""[cite: 1]
+                col_unit = sv_df.columns[3] if len(sv_df.columns) > 3 else ""
                 
-                raw_col = sv_df[col_mssv].astype(str).str.split('.').str[0].str.strip().str.replace('\xa0', '')[cite: 1]
-                sv_df["CLEAN_ID"] = raw_col[cite: 1]
-                match = sv_df[(sv_df["CLEAN_ID"] == mc_id) | (sv_df["CLEAN_ID"] == mc_id.zfill(9))][cite: 1]
-                if not match.empty:[cite: 1]
-                    mc_fetched_name = str(match.iloc[0][col_name]).strip()[cite: 1]
-                    unit_raw = str(match.iloc[0][col_unit]).strip() if col_unit else ""[cite: 1]
+                raw_col = sv_df[col_mssv].astype(str).str.split('.').str[0].str.strip().str.replace('\xa0', '')
+                sv_df["CLEAN_ID"] = raw_col
+                match = sv_df[(sv_df["CLEAN_ID"] == mc_id) | (sv_df["CLEAN_ID"] == mc_id.zfill(9))]
+                if not match.empty:
+                    mc_fetched_name = str(match.iloc[0][col_name]).strip()
+                    unit_raw = str(match.iloc[0][col_unit]).strip() if col_unit else ""
                     class_raw = str(match.iloc[0][col_class]).strip() if col_class else ""
                     mc_fetched_unit = f"{unit_raw} - Lớp {class_raw}" if class_raw else unit_raw
 
-    col_mc1, col_mc2 = st.columns(2)[cite: 1]
+    col_mc1, col_mc2 = st.columns(2)
     with col_mc1:
-        st.text_input("Họ và tên người nộp:", value=mc_fetched_name, disabled=True)[cite: 1]
+        st.text_input("Họ và tên người nộp:", value=mc_fetched_name, disabled=True)
     with col_mc2:
-        st.text_input("Đơn vị / Lớp:", value=mc_fetched_unit, disabled=True)[cite: 1]
+        st.text_input("Đơn vị / Lớp:", value=mc_fetched_unit, disabled=True)
 
-    with st.form("form_minh_chung_detail"):[cite: 1]
-        mc_type = st.selectbox("Loại yêu cầu:", ["Nghỉ phép Buổi Sáng", "Nghỉ phép Buổi Chiều", "Nghỉ phép Cả Ngày", "Minh chứng Đi trễ > 30 phút"])[cite: 1]
-        mc_reason = st.text_area("Lý do chi tiết:")[cite: 1]
-        mc_file = st.file_uploader("Tải lên file đi kèm (Ảnh / PDF):", type=["png", "jpg", "jpeg", "pdf"])[cite: 1]
+    with st.form("form_minh_chung_detail"):
+        mc_type = st.selectbox("Loại yêu cầu:", ["Nghỉ phép Buổi Sáng", "Nghỉ phép Buổi Chiều", "Nghỉ phép Cả Ngày", "Minh chứng Đi trễ > 30 phút"])
+        mc_reason = st.text_area("Lý do chi tiết:")
+        mc_file = st.file_uploader("Tải lên file đi kèm (Ảnh / PDF):", type=["png", "jpg", "jpeg", "pdf"])
         
-        btn_submit = st.form_submit_button("GỬI YÊU CẦU MINH CHỨNG")[cite: 1]
+        btn_submit = st.form_submit_button("GỬI YÊU CẦU MINH CHỨNG")
         
-        if btn_submit:[cite: 1]
-            if len(mc_id) < 6 or not mc_fetched_name:[cite: 1]
-                st.error("Mã số chưa chính xác hoặc không có trong danh sách dữ liệu trên OneDrive!")[cite: 1]
-            elif not mc_reason:[cite: 1]
-                st.error("Vui lòng nhập lý do chi tiết!")[cite: 1]
+        if btn_submit:
+            if len(mc_id) < 6 or not mc_fetched_name:
+                st.error("Mã số chưa chính xác hoặc không có trong danh sách dữ liệu trên OneDrive!")
+            elif not mc_reason:
+                st.error("Vui lòng nhập lý do chi tiết!")
             else:
-                file_saved_name = "Không có file"[cite: 1]
-                if mc_file is not None:[cite: 1]
-                    file_ext = mc_file.name.split(".")[-1][cite: 1]
-                    timestamp_str = now_vn.strftime("%Y%m%d_%H%M%S")[cite: 1]
-                    file_saved_name = f"{mc_id}_{timestamp_str}.{file_ext}"[cite: 1]
-                    upload_file_to_onedrive("OGSM/ATTENDANCE/DATA/MINHCHUNG_FILES", file_saved_name, mc_file.getvalue())[cite: 1]
+                file_saved_name = "Không có file"
+                if mc_file is not None:
+                    file_ext = mc_file.name.split(".")[-1]
+                    timestamp_str = now_vn.strftime("%Y%m%d_%H%M%S")
+                    file_saved_name = f"{mc_id}_{timestamp_str}.{file_ext}"
+                    upload_file_to_onedrive("OGSM/ATTENDANCE/DATA/MINHCHUNG_FILES", file_saved_name, mc_file.getvalue())
 
                 mc_record = {
                     "Mã Số": mc_id,
@@ -683,161 +674,161 @@ with tabs[1]:
                     "File Minh Chứng": file_saved_name,
                     "Thời Gian Gửi": now_vn.strftime("%Y-%m-%d %H:%M:%S"),
                     "Trạng Thái Duyệt": "Chờ duyệt"
-                }[cite: 1]
-                saved_mc, err_mc = save_to_firebase("MinhChung_NghiPhep", mc_record)[cite: 1]
-                if saved_mc:[cite: 1]
-                    st.success(f"Yêu cầu xin nghỉ / minh chứng của {mc_user_role} {mc_fetched_name} ({mc_id}) đã được ghi nhận thành công!")[cite: 1]
+                }
+                saved_mc, err_mc = save_to_firebase("MinhChung_NghiPhep", mc_record)
+                if saved_mc:
+                    st.success(f"Yêu cầu xin nghỉ / minh chứng của {mc_user_role} {mc_fetched_name} ({mc_id}) đã được ghi nhận thành công!")
                 else:
-                    st.error(f"Lỗi gửi đơn lên Firebase: {err_mc}")[cite: 1]
+                    st.error(f"Lỗi gửi đơn lên Firebase: {err_mc}")
 
 # ----------------- TAB 3: DASHBOARD (ADMIN & ĐỒNG BỘ ONEDRIVE) -----------------
 with tabs[2]:
-    st.subheader("🔒 BÁO CÁO & THỐNG KÊ QUẢN TRỊ")[cite: 1]
+    st.subheader("🔒 BÁO CÁO & THỐNG KÊ QUẢN TRỊ")
     
-    admin_pass = str(st.secrets["admin"]["password"]).strip()[cite: 1]
-    input_pass = st.text_input("Nhập mật khẩu Quản trị viên để truy cập:", type="password", key="db_pass_input")[cite: 1]
+    admin_pass = str(st.secrets["admin"]["password"]).strip()
+    input_pass = st.text_input("Nhập mật khẩu Quản trị viên để truy cập:", type="password", key="db_pass_input")
     
-    if input_pass != admin_pass:[cite: 1]
-        if input_pass:[cite: 1]
-            st.error("Mật khẩu không chính xác! Vui lòng liên hệ Ban quản trị.")[cite: 1]
+    if input_pass != admin_pass:
+        if input_pass:
+            st.error("Mật khẩu không chính xác! Vui lòng liên hệ Ban quản trị.")
         else:
-            st.info("Vui lòng nhập mật khẩu Quản trị viên để xem biểu đồ, báo cáo và xuất file Excel.")[cite: 1]
+            st.info("Vui lòng nhập mật khẩu Quản trị viên để xem biểu đồ, báo cáo và xuất file Excel.")
     else:
-        st.success("Đã xác thực quyền Quản trị viên!")[cite: 1]
-        st.markdown("---")[cite: 1]
+        st.success("Đã xác thực quyền Quản trị viên!")
+        st.markdown("---")
 
-        st.markdown("### ☁️ ĐỒNG BỘ DỮ LIỆU SANG ONEDRIVE")[cite: 1]
-        st.caption("Nhấn nút này để gom toàn bộ dữ liệu điểm danh từ Firebase ghi đè vào các file Excel trên OneDrive.")[cite: 1]
+        st.markdown("### ☁️ ĐỒNG BỘ DỮ LIỆU SANG ONEDRIVE")
+        st.caption("Nhấn nút này để gom toàn bộ dữ liệu điểm danh từ Firebase ghi đè vào các file Excel trên OneDrive.")
         
-        if st.button("🔄 ĐỒNG BỘ TẤT CẢ DỮ LIỆU SANG ONEDRIVE (XLSX)", type="primary", use_container_width=True):[cite: 1]
-            with st.spinner("Đang trích xuất dữ liệu từ Firebase và ghi vào OneDrive..."):[cite: 1]
+        if st.button("🔄 ĐỒNG BỘ TẤT CẢ DỮ LIỆU SANG ONEDRIVE (XLSX)", type="primary", use_container_width=True):
+            with st.spinner("Đang trích xuất dữ liệu từ Firebase và ghi vào OneDrive..."):
                 sync_tasks = [
                     ("Sinh viên", "LichSu_SV", "LichSu_SV.xlsx"),
                     ("Giảng viên", "LichSu_GV", "LichSu_GV.xlsx"),
                     ("Viên chức", "LichSu_VC", "LichSu_VC.xlsx"),
                     ("Nghỉ phép", "MinhChung_NghiPhep", "MinhChung_NghiPhep.xlsx")
-                ][cite: 1]
-                success_count = 0[cite: 1]
-                for role_label, node, fname in sync_tasks:[cite: 1]
-                    df_sync = read_from_firebase(node)[cite: 1]
-                    if not df_sync.empty:[cite: 1]
-                        buf = io.BytesIO()[cite: 1]
-                        with pd.ExcelWriter(buf, engine='openpyxl') as writer:[cite: 1]
-                            df_sync.to_excel(writer, sheet_name='Sheet1', index=False)[cite: 1]
-                        uploaded = upload_file_to_onedrive("OGSM/ATTENDANCE/DATA", fname, buf.getvalue())[cite: 1]
-                        if uploaded:[cite: 1]
-                            success_count += 1[cite: 1]
+                ]
+                success_count = 0
+                for role_label, node, fname in sync_tasks:
+                    df_sync = read_from_firebase(node)
+                    if not df_sync.empty:
+                        buf = io.BytesIO()
+                        with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+                            df_sync.to_excel(writer, sheet_name='Sheet1', index=False)
+                        uploaded = upload_file_to_onedrive("OGSM/ATTENDANCE/DATA", fname, buf.getvalue())
+                        if uploaded:
+                            success_count += 1
                 
-                if success_count > 0:[cite: 1]
-                    st.success(f"✅ Đã đồng bộ thành công {success_count} file dữ liệu sang thư mục OneDrive (OGSM/ATTENDANCE/DATA)!")[cite: 1]
+                if success_count > 0:
+                    st.success(f"✅ Đã đồng bộ thành công {success_count} file dữ liệu sang thư mục OneDrive (OGSM/ATTENDANCE/DATA)!")
                 else:
-                    st.warning("Chưa có dữ liệu mới để đồng bộ hoặc kiểm tra lại quyền kết nối Microsoft Graph.")[cite: 1]
-        st.markdown("---")[cite: 1]
+                    st.warning("Chưa có dữ liệu mới để đồng bộ hoặc kiểm tra lại quyền kết nối Microsoft Graph.")
+        st.markdown("---")
         
         view_mode = st.radio("Chọn loại báo cáo:", [
             "Nhật ký điểm danh chi tiết & Biểu đồ", 
             "Báo cáo Thống kê Thi đua / Đèn Rèn luyện (Theo Tháng)", 
             "Danh sách đơn minh chứng / nghỉ phép"
-        ], index=0, horizontal=True, key="db_view_mode")[cite: 1]
+        ], index=0, horizontal=True, key="db_view_mode")
         
-        if view_mode == "Nhật ký điểm danh chi tiết & Biểu đồ":[cite: 1]
-            selected_report_role = st.selectbox("Chọn nhóm dữ liệu xem báo cáo:", ["Sinh viên", "Giảng viên", "Viên chức"], key="report_role_select")[cite: 1]
-            node_map_report = {"Giảng viên": "LichSu_GV", "Viên chức": "LichSu_VC", "Sinh viên": "LichSu_SV"}[cite: 1]
-            history_df = read_from_firebase(node_map_report[selected_report_role])[cite: 1]
+        if view_mode == "Nhật ký điểm danh chi tiết & Biểu đồ":
+            selected_report_role = st.selectbox("Chọn nhóm dữ liệu xem báo cáo:", ["Sinh viên", "Giảng viên", "Viên chức"], key="report_role_select")
+            node_map_report = {"Giảng viên": "LichSu_GV", "Viên chức": "LichSu_VC", "Sinh viên": "LichSu_SV"}
+            history_df = read_from_firebase(node_map_report[selected_report_role])
             
-            if history_df.empty:[cite: 1]
-                st.info(f"Chưa có dữ liệu điểm danh trên Firebase cho nhóm **{selected_report_role}**.")[cite: 1]
+            if history_df.empty:
+                st.info(f"Chưa có dữ liệu điểm danh trên Firebase cho nhóm **{selected_report_role}**.")
             else:
-                unit_col = "Bộ Môn - Lớp" if "Bộ Môn - Lớp" in history_df.columns else ("Bộ Môn / Lớp" if "Bộ Môn / Lớp" in history_df.columns else ("Đơn Vị" if "Đơn Vị" in history_df.columns else history_df.columns[3]))[cite: 1]
-                history_df[unit_col] = history_df[unit_col].apply(shorten_unit_name)[cite: 1]
+                unit_col = "Bộ Môn - Lớp" if "Bộ Môn - Lớp" in history_df.columns else ("Bộ Môn / Lớp" if "Bộ Môn / Lớp" in history_df.columns else ("Đơn Vị" if "Đơn Vị" in history_df.columns else history_df.columns[3]))
+                history_df[unit_col] = history_df[unit_col].apply(shorten_unit_name)
 
-                available_units = ["Tất cả (Toàn Khoa / Toàn Trường)"] + sorted([str(u) for u in history_df[unit_col].dropna().unique() if str(u).strip() != ""])[cite: 1]
+                available_units = ["Tất cả (Toàn Khoa / Toàn Trường)"] + sorted([str(u) for u in history_df[unit_col].dropna().unique() if str(u).strip() != ""])
                 
-                c_f1, c_f2 = st.columns(2)[cite: 1]
+                c_f1, c_f2 = st.columns(2)
                 with c_f1:
-                    selected_unit_filter = st.selectbox("📌 Lọc dữ liệu theo Bộ môn / Lớp / Đơn vị:", available_units, index=0, key="dashboard_unit_filter")[cite: 1]
+                    selected_unit_filter = st.selectbox("📌 Lọc dữ liệu theo Bộ môn / Lớp / Đơn vị:", available_units, index=0, key="dashboard_unit_filter")
                 with c_f2:
-                    selected_action_filter = st.selectbox("🔄 Lọc theo Thao tác:", ["Tất cả (Vào ca & Ra ca)", "Vào ca (Check-in)", "Ra ca (Check-out)"], index=0, key="dashboard_action_filter")[cite: 1]
+                    selected_action_filter = st.selectbox("🔄 Lọc theo Thao tác:", ["Tất cả (Vào ca & Ra ca)", "Vào ca (Check-in)", "Ra ca (Check-out)"], index=0, key="dashboard_action_filter")
 
-                filtered_df = history_df.copy()[cite: 1]
-                if selected_unit_filter != "Tất cả (Toàn Khoa / Toàn Trường)":[cite: 1]
-                    filtered_df = filtered_df[filtered_df[unit_col] == selected_unit_filter][cite: 1]
-                if selected_action_filter != "Tất cả (Vào ca & Ra ca)":[cite: 1]
-                    filtered_df = filtered_df[filtered_df["Thao Tác"] == selected_action_filter][cite: 1]
+                filtered_df = history_df.copy()
+                if selected_unit_filter != "Tất cả (Toàn Khoa / Toàn Trường)":
+                    filtered_df = filtered_df[filtered_df[unit_col] == selected_unit_filter]
+                if selected_action_filter != "Tất cả (Vào ca & Ra ca)":
+                    filtered_df = filtered_df[filtered_df["Thao Tác"] == selected_action_filter]
 
-                total_records = len(filtered_df)[cite: 1]
-                checkin_count = len(filtered_df[filtered_df["Thao Tác"] == "Vào ca (Check-in)"]) if "Thao Tác" in filtered_df.columns else 0[cite: 1]
-                checkout_count = len(filtered_df[filtered_df["Thao Tác"] == "Ra ca (Check-out)"]) if "Thao Tác" in filtered_df.columns else 0[cite: 1]
-                on_time_count = len(filtered_df[filtered_df["Trạng Thái"] == "Đúng giờ"]) if "Trạng Thái" in filtered_df.columns else 0[cite: 1]
-                early_leave_count = len(filtered_df[filtered_df["Trạng Thái"].str.contains("Về sớm", na=False)]) if "Trạng Thái" in filtered_df.columns else 0[cite: 1]
-                late_count = len(filtered_df[filtered_df["Trạng Thái"].str.contains("trễ|Trễ", na=False)]) if "Trạng Thái" in filtered_df.columns else 0[cite: 1]
+                total_records = len(filtered_df)
+                checkin_count = len(filtered_df[filtered_df["Thao Tác"] == "Vào ca (Check-in)"]) if "Thao Tác" in filtered_df.columns else 0
+                checkout_count = len(filtered_df[filtered_df["Thao Tác"] == "Ra ca (Check-out)"]) if "Thao Tác" in filtered_df.columns else 0
+                on_time_count = len(filtered_df[filtered_df["Trạng Thái"] == "Đúng giờ"]) if "Trạng Thái" in filtered_df.columns else 0
+                early_leave_count = len(filtered_df[filtered_df["Trạng Thái"].str.contains("Về sớm", na=False)]) if "Trạng Thái" in filtered_df.columns else 0
+                late_count = len(filtered_df[filtered_df["Trạng Thái"].str.contains("trễ|Trễ", na=False)]) if "Trạng Thái" in filtered_df.columns else 0
                 
-                m1, m2, m3, m4, m5 = st.columns(5)[cite: 1]
-                m1.metric("Tổng lượt ghi nhận", total_records)[cite: 1]
-                m2.metric("Lượt Vào ca", checkin_count)[cite: 1]
-                m3.metric("Lượt Ra ca", checkout_count)[cite: 1]
-                m4.metric("Lượt Đi trễ", late_count)[cite: 1]
-                m5.metric("Lượt Về sớm", early_leave_count)[cite: 1]
+                m1, m2, m3, m4, m5 = st.columns(5)
+                m1.metric("Tổng lượt ghi nhận", total_records)
+                m2.metric("Lượt Vào ca", checkin_count)
+                m3.metric("Lượt Ra ca", checkout_count)
+                m4.metric("Lượt Đi trễ", late_count)
+                m5.metric("Lượt Về sớm", early_leave_count)
                 
-                st.markdown("---")[cite: 1]
-                col_chart1, col_chart2 = st.columns(2)[cite: 1]
+                st.markdown("---")
+                col_chart1, col_chart2 = st.columns(2)
                 with col_chart1:
-                    st.markdown("**Biểu đồ Tỷ lệ Trạng thái**")[cite: 1]
-                    if "Trạng Thái" in filtered_df.columns and not filtered_df.empty:[cite: 1]
-                        status_counts = filtered_df["Trạng Thái"].value_counts().reset_index()[cite: 1]
-                        status_counts.columns = ["Trạng Thái", "Số Lượng"][cite: 1]
-                        fig_pie = px.pie(status_counts, values="Số Lượng", names="Trạng Thái", hole=0.4, color_discrete_sequence=["#1877F2", "#E41E3F", "#FF9900", "#6c757d", "#17a2b8"])[cite: 1]
-                        fig_pie.update_layout(margin=dict(t=10, b=10, l=10, r=10))[cite: 1]
-                        st.plotly_chart(fig_pie, use_container_width=True)[cite: 1]
+                    st.markdown("**Biểu đồ Tỷ lệ Trạng thái**")
+                    if "Trạng Thái" in filtered_df.columns and not filtered_df.empty:
+                        status_counts = filtered_df["Trạng Thái"].value_counts().reset_index()
+                        status_counts.columns = ["Trạng Thái", "Số Lượng"]
+                        fig_pie = px.pie(status_counts, values="Số Lượng", names="Trạng Thái", hole=0.4, color_discrete_sequence=["#1877F2", "#E41E3F", "#FF9900", "#6c757d", "#17a2b8"])
+                        fig_pie.update_layout(margin=dict(t=10, b=10, l=10, r=10))
+                        st.plotly_chart(fig_pie, use_container_width=True)
 
                 with col_chart2:
-                    st.markdown("**Biểu đồ Phân bố theo Đơn vị / Lớp**")[cite: 1]
-                    if not filtered_df.empty and "Thao Tác" in filtered_df.columns:[cite: 1]
-                        action_unit_counts = filtered_df.groupby([unit_col, "Thao Tác"]).size().reset_index(name="Số Lượt")[cite: 1]
-                        fig_bar = px.bar(action_unit_counts, x=unit_col, y="Số Lượt", color="Thao Tác", barmode="group", text_auto=True, color_discrete_map={"Vào ca (Check-in)": "#1877F2", "Ra ca (Check-out)": "#28a745"})[cite: 1]
-                        fig_bar.update_layout(margin=dict(t=10, b=10, l=10, r=10))[cite: 1]
-                        st.plotly_chart(fig_bar, use_container_width=True)[cite: 1]
+                    st.markdown("**Biểu đồ Phân bố theo Đơn vị / Lớp**")
+                    if not filtered_df.empty and "Thao Tác" in filtered_df.columns:
+                        action_unit_counts = filtered_df.groupby([unit_col, "Thao Tác"]).size().reset_index(name="Số Lượt")
+                        fig_bar = px.bar(action_unit_counts, x=unit_col, y="Số Lượt", color="Thao Tác", barmode="group", text_auto=True, color_discrete_map={"Vào ca (Check-in)": "#1877F2", "Ra ca (Check-out)": "#28a745"})
+                        fig_bar.update_layout(margin=dict(t=10, b=10, l=10, r=10))
+                        st.plotly_chart(fig_bar, use_container_width=True)
 
-                st.dataframe(filtered_df, use_container_width=True)[cite: 1]
+                st.dataframe(filtered_df, use_container_width=True)
                 
-                buffer = io.BytesIO()[cite: 1]
-                with pd.ExcelWriter(buffer, engine='openpyxl') as writer:[cite: 1]
-                    filtered_df.to_excel(writer, sheet_name='Sheet1', index=False)[cite: 1]
+                buffer = io.BytesIO()
+                with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                    filtered_df.to_excel(writer, sheet_name='Sheet1', index=False)
                 st.download_button(
                     label="XUẤT BÁO CÁO EXCEL ĐÃ LỌC (.XLSX)",
                     data=buffer.getvalue(),
                     file_name=f"Bao_Cao_{selected_report_role}_{now_vn.strftime('%Y%m%d_%H%M')}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )[cite: 1]
+                )
 
-        elif view_mode == "Báo cáo Thống kê Thi đua / Đèn Rèn luyện (Theo Tháng)":[cite: 1]
-            selected_report_role = st.selectbox("Chọn đối tượng:", ["Sinh viên", "Giảng viên", "Viên chức"], key="stat_role_select")[cite: 1]
-            node_map_report = {"Giảng viên": "LichSu_GV", "Viên chức": "LichSu_VC", "Sinh viên": "LichSu_SV"}[cite: 1]
-            history_df = read_from_firebase(node_map_report[selected_report_role])[cite: 1]
+        elif view_mode == "Báo cáo Thống kê Thi đua / Đèn Rèn luyện (Theo Tháng)":
+            selected_report_role = st.selectbox("Chọn đối tượng:", ["Sinh viên", "Giảng viên", "Viên chức"], key="stat_role_select")
+            node_map_report = {"Giảng viên": "LichSu_GV", "Viên chức": "LichSu_VC", "Sinh viên": "LichSu_SV"}
+            history_df = read_from_firebase(node_map_report[selected_report_role])
             
-            if history_df.empty:[cite: 1]
-                st.info("Chưa có dữ liệu điểm danh trên Firebase.")[cite: 1]
+            if history_df.empty:
+                st.info("Chưa có dữ liệu điểm danh trên Firebase.")
             else:
-                history_df["THỜI GIAN DT"] = pd.to_datetime(history_df["Thời Gian"], errors='coerce')[cite: 1]
-                history_df["THÁNG_NĂM"] = history_df["THỜI GIAN DT"].dt.strftime("%m/%Y")[cite: 1]
-                available_months = sorted(history_df["THÁNG_NĂM"].dropna().unique(), reverse=True)[cite: 1]
-                selected_month = st.selectbox("Chọn Tháng/Năm xem báo cáo thi đua:", available_months if available_months else [now_vn.strftime("%m/%Y")])[cite: 1]
+                history_df["THỜI GIAN DT"] = pd.to_datetime(history_df["Thời Gian"], errors='coerce')
+                history_df["THÁNG_NĂM"] = history_df["THỜI GIAN DT"].dt.strftime("%m/%Y")
+                available_months = sorted(history_df["THÁNG_NĂM"].dropna().unique(), reverse=True)
+                selected_month = st.selectbox("Chọn Tháng/Năm xem báo cáo thi đua:", available_months if available_months else [now_vn.strftime("%m/%Y")])
                 
-                df_month = history_df[history_df["THÁNG_NĂM"] == selected_month].copy()[cite: 1]
-                if df_month.empty:[cite: 1]
-                    st.info(f"Không có dữ liệu điểm danh trong tháng {selected_month}.")[cite: 1]
+                df_month = history_df[history_df["THÁNG_NĂM"] == selected_month].copy()
+                if df_month.empty:
+                    st.info(f"Không có dữ liệu điểm danh trong tháng {selected_month}.")
                 else:
-                    if "Số Phút Trễ" not in df_month.columns: df_month["Số Phút Trễ"] = 0[cite: 1]
-                    if "Số Phút Về Sớm" not in df_month.columns: df_month["Số Phút Về Sớm"] = 0[cite: 1]
-                    df_month["Số Phút Trễ"] = pd.to_numeric(df_month["Số Phút Trễ"], errors='coerce').fillna(0)[cite: 1]
-                    df_month["Số Phút Về Sớm"] = pd.to_numeric(df_month["Số Phút Về Sớm"], errors='coerce').fillna(0)[cite: 1]
+                    if "Số Phút Trễ" not in df_month.columns: df_month["Số Phút Trễ"] = 0
+                    if "Số Phút Về Sớm" not in df_month.columns: df_month["Số Phút Về Sớm"] = 0
+                    df_month["Số Phút Trễ"] = pd.to_numeric(df_month["Số Phút Trễ"], errors='coerce').fillna(0)
+                    df_month["Số Phút Về Sớm"] = pd.to_numeric(df_month["Số Phút Về Sớm"], errors='coerce').fillna(0)
 
-                    summary_list = [][cite: 1]
-                    grouped = df_month.groupby("Mã Số")[cite: 1]
-                    for ms, group in grouped:[cite: 1]
-                        name = group["Họ Và Tên"].iloc[0] if "Họ Và Tên" in group.columns else ""[cite: 1]
-                        unit = group["Đơn Vị"].iloc[0] if "Đơn Vị" in group.columns else ""[cite: 1]
-                        sub_class = group["Bộ Môn - Lớp"].iloc[0] if "Bộ Môn - Lớp" in group.columns else (group["Bộ Môn / Lớp"].iloc[0] if "Bộ Môn / Lớp" in group.columns else "")[cite: 1]
+                    summary_list = []
+                    grouped = df_month.groupby("Mã Số")
+                    for ms, group in grouped:
+                        name = group["Họ Và Tên"].iloc[0] if "Họ Và Tên" in group.columns else ""
+                        unit = group["Đơn Vị"].iloc[0] if "Đơn Vị" in group.columns else ""
+                        sub_class = group["Bộ Môn - Lớp"].iloc[0] if "Bộ Môn - Lớp" in group.columns else (group["Bộ Môn / Lớp"].iloc[0] if "Bộ Môn / Lớp" in group.columns else "")
                         
                         summary_list.append({
                             "Mã Số": ms,
@@ -851,20 +842,20 @@ with tabs[2]:
                             "Tổng Phút Trễ": int(group["Số Phút Trễ"].sum()),
                             "Về Sớm": len(group[group["Trạng Thái"].str.contains("Về sớm", na=False)]),
                             "Tổng Phút Về Sớm": int(group["Số Phút Về Sớm"].sum())
-                        })[cite: 1]
+                        })
                     
-                    sum_df = pd.DataFrame(summary_list)[cite: 1]
-                    st.markdown(f"### 📊 BẢNG THỐNG KÊ THI ĐUA - THÁNG {selected_month}")[cite: 1]
-                    st.dataframe(sum_df, use_container_width=True)[cite: 1]
+                    sum_df = pd.DataFrame(summary_list)
+                    st.markdown(f"### 📊 BẢNG THỐNG KÊ THI ĐUA - THÁNG {selected_month}")
+                    st.dataframe(sum_df, use_container_width=True)
 
         else:
-            mc_df = read_from_firebase("MinhChung_NghiPhep")[cite: 1]
-            if mc_df.empty:[cite: 1]
-                st.info("Chưa có đơn xin nghỉ phép / minh chứng nào được gửi.")[cite: 1]
+            mc_df = read_from_firebase("MinhChung_NghiPhep")
+            if mc_df.empty:
+                st.info("Chưa có đơn xin nghỉ phép / minh chứng nào được gửi.")
             else:
-                st.metric("Tổng số đơn đã gửi", len(mc_df))[cite: 1]
-                st.dataframe(mc_df, use_container_width=True)[cite: 1]
-                buffer = io.BytesIO()[cite: 1]
-                with pd.ExcelWriter(buffer, engine='openpyxl') as writer:[cite: 1]
-                    mc_df.to_excel(writer, sheet_name='MinhChung', index=False)[cite: 1]
-                st.download_button(label="XUẤT BÁO CÁO MINH CHỨNG (.XLSX)", data=buffer.getvalue(), file_name=f"Bao_Cao_Minh_Chung_{now_vn.strftime('%Y%m%d_%H%M')}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")[cite: 1]
+                st.metric("Tổng số đơn đã gửi", len(mc_df))
+                st.dataframe(mc_df, use_container_width=True)
+                buffer = io.BytesIO()
+                with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+                    mc_df.to_excel(writer, sheet_name='MinhChung', index=False)
+                st.download_button(label="XUẤT BÁO CÁO MINH CHỨNG (.XLSX)", data=buffer.getvalue(), file_name=f"Bao_Cao_Minh_Chung_{now_vn.strftime('%Y%m%d_%H%M')}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
