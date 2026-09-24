@@ -292,6 +292,29 @@ with tabs[0]:
     now_vn = get_vietnam_now()
     is_out_of_hours = (now_vn.hour >= 18) or (now_vn.hour < 6)
     
+    # 1. TÍNH TOÁN LOGIC TIẾT HỌC THỜI GIAN THỰC (LỌC BỎ TIẾT ĐÃ QUA)
+    # Lấy schedule mặc định Lý thuyết để xác định các tiết còn hiệu lực
+    schedule_ref = LESSON_TIMES_THEORY
+    valid_start_lessons = []
+    for t in range(1, 11):
+        t_end_h, t_end_m = schedule_ref[t]["end"]
+        t_end_dt = now_vn.replace(hour=t_end_h, minute=t_end_m, second=0, microsecond=0)
+        # Chỉ hiển thị tiết chưa qua hoặc nếu là buổi chiều (t >= 6) khi hiện tại đang là buổi sáng
+        if now_vn <= t_end_dt or (t >= 6 and now_vn.hour < 12):
+            valid_start_lessons.append(t)
+    
+    if not valid_start_lessons:
+        valid_start_lessons = list(range(1, 11))
+
+    # Mặc định tiết kết thúc theo ca Sáng (đến tiết 5) hoặc Chiều (đến tiết 10)
+    current_default_start = valid_start_lessons[0]
+    if current_default_start <= 5:
+        available_end_lessons = [t for t in range(current_default_start, 6)]
+        default_end_idx = len(available_end_lessons) - 1 # Mặc định tiết 5
+    else:
+        available_end_lessons = [t for t in range(current_default_start, 11)]
+        default_end_idx = len(available_end_lessons) - 1 # Mặc định tiết 10
+
     with st.form("form_diem_danh_tong_hop"):
         c_left, c_right = st.columns(2)
 
@@ -301,12 +324,19 @@ with tabs[0]:
             
             study_type = st.radio("Hình thức học (GV / SV):", ["Lý thuyết", "Thực hành"], horizontal=True)
             
+            # Khung chọn tiết thời gian thực
             c_t1, c_t2 = st.columns(2)
             with c_t1:
-                start_lesson = st.selectbox("Từ tiết (GV / SV):", list(range(1, 11)), index=0)
+                start_lesson = st.selectbox("Từ tiết (GV / SV):", valid_start_lessons, index=0)
             with c_t2:
-                end_lesson = st.selectbox("Đến tiết (GV / SV):", list(range(1, 11)), index=3)
+                # Nếu người dùng chọn tiết bắt đầu, tính danh sách tiết kết thúc trong ca tương ứng
+                if start_lesson <= 5:
+                    dyn_end_lessons = [t for t in range(start_lesson, 6)]
+                else:
+                    dyn_end_lessons = [t for t in range(start_lesson, 11)]
+                end_lesson = st.selectbox("Đến tiết (GV / SV):", dyn_end_lessons, index=len(dyn_end_lessons)-1)
 
+            # Ca làm việc của Viên chức
             default_vc_idx = 0 if now_vn.hour < 12 else 1
             vc_shift = st.selectbox("Ca làm việc (Viên chức):", ["Ca Sáng (07:00 - 11:00)", "Ca Chiều (13:00 - 17:00)"], index=default_vc_idx)
 
@@ -318,7 +348,7 @@ with tabs[0]:
             )
             st.caption("📍 *Vị trí GPS được hệ thống xác thực khi bạn nhấn nút bên dưới.*")
             
-            # Ô kiểm tra an toàn: Tránh việc lỡ tay bấm phím Enter khi gõ mã số
+            # Ô kiểm tra an toàn: Ngăn chặn việc lỡ ấn phím Enter khi đang gõ mã số
             confirm_check = st.checkbox("Tôi xác nhận thông tin trên là chính xác", value=False)
 
         btn_confirm = st.form_submit_button("XÁC NHẬN ĐIỂM DANH", use_container_width=True)
@@ -545,7 +575,7 @@ with tabs[0]:
                         ok, err = save_to_firebase(target_node, record_data)
                         if ok:
                             st.balloons()
-                            st.success(f"🎉 GHI NHẬN THÀNH CÔNG: {user_role} {fetched_name} - Trạng thái: {status} ({now_vn.strftime('%H:%M:%S')})!")
+                            st.success(f"🎉 GHI NHẬN THÀNH CÔNG: {user_role} {fetched_name} (Lớp: {fetched_class if user_role == 'Sinh viên' else fetched_sub}) - Trạng thái: {status} ({now_vn.strftime('%H:%M:%S')})!")
                         else:
                             st.error(f"Lỗi gửi dữ liệu Firebase: {err}")
 
