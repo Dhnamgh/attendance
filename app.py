@@ -295,7 +295,7 @@ def calculate_distance(lat1, lon1, lat2, lon2):
     return 2 * R * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 # ================= 3. GIAO DIỆN HỆ THỐNG =================
-tabs = st.tabs(["Điểm danh", "Báo nghỉ phép", "Dashboard"])
+tabs = st.tabs(["Điểm danh", "Báo nghỉ phép", "Xem điểm", "Dashboard"])
 
 if "early_leave_pending" not in st.session_state:
     st.session_state["early_leave_pending"] = False
@@ -670,6 +670,75 @@ with tabs[1]:
                 else:
                     st.error(f"Lỗi gửi đơn lên Firebase: {err_mc}")
 
+# ----------------- TAB 3: XEM ĐIỂM (BẢO MẬT CÁ NHÂN) -----------------
+with tabs[2]:
+    st.markdown("### 🎓 TRA CỨU ĐIỂM HỌC TẬP CÁ NHÂN")
+    st.caption("🔒 *Thông tin điểm được bảo mật. Mỗi sinh viên chỉ có thể xem điểm của chính mình bằng Mã số sinh viên.*")
+
+    col_grade_in, _ = st.columns([2, 2])
+    with col_grade_in:
+        grade_mssv_input = st.text_input(
+            "Nhập Mã số sinh viên (MSSV) của bạn:", 
+            max_chars=9, 
+            placeholder="Nhập MSSV rồi nhấn Enter...", 
+            key="grade_mssv_input"
+        ).strip()
+
+    if grade_mssv_input:
+        if len(grade_mssv_input) < 6:
+            st.warning("⚠️ Vui lòng nhập đúng và đủ Mã số sinh viên!")
+        else:
+            # Đọc file K26.xlsx đã được cache trên RAM
+            target_df = read_excel_from_onedrive("OGSM/ATTENDANCE/DATA/SV/K26.xlsx")
+            
+            if target_df.empty:
+                st.error("Không thể kết nối đến cơ sở dữ liệu điểm trên OneDrive. Vui lòng thử lại sau!")
+            else:
+                col_mssv = target_df.columns[0]
+                target_df["CLEAN_ID"] = target_df[col_mssv].astype(str).str.strip().str.replace('\xa0', '').str.replace('.0', '', regex=False)
+                
+                # So khớp chính xác MSSV
+                match_student = target_df[(target_df["CLEAN_ID"] == grade_mssv_input) | (target_df["CLEAN_ID"] == grade_mssv_input.zfill(9))]
+                
+                if match_student.empty:
+                    st.error(f"❌ Không tìm thấy thông tin của sinh viên có MSSV: **{grade_mssv_input}** trong danh sách!")
+                else:
+                    # Trích xuất dữ liệu dòng của sinh viên đó
+                    row = match_student.iloc[0]
+                    name_val = row[target_df.columns[1]] if len(target_df.columns) > 1 else ""
+                    class_val = row[target_df.columns[2]] if len(target_df.columns) > 2 else ""
+                    unit_val = row[target_df.columns[3]] if len(target_df.columns) > 3 else ""
+                    sub_val = row[target_df.columns[4]] if len(target_df.columns) > 4 else ""
+                    course_val = row[target_df.columns[5]] if len(target_df.columns) > 5 else ""
+                    
+                    # Lấy Điểm TX và Điểm GK (tìm theo tên cột hoặc thứ tự cột G, H)
+                    col_tx_name = [c for c in target_df.columns if "TX" in str(c).upper() or "THƯỜNG KỲ" in str(c).upper()]
+                    col_gk_name = [c for c in target_df.columns if "GK" in str(c).upper() or "GIỮA KỲ" in str(c).upper()]
+                    
+                    val_tx = row[col_tx_name[0]] if col_tx_name else (row[target_df.columns[6]] if len(target_df.columns) > 6 else "Chưa có")
+                    val_gk = row[col_gk_name[0]] if col_gk_name else (row[target_df.columns[7]] if len(target_df.columns) > 7 else "Chưa có")
+                    
+                    # Xử lý chuỗi rỗng / NaN
+                    val_tx = "Chưa có" if (pd.isna(val_tx) or str(val_tx).strip() == "" or str(val_tx).strip() == "nan") else str(val_tx).strip()
+                    val_gk = "Chưa có" if (pd.isna(val_gk) or str(val_gk).strip() == "" or str(val_gk).strip() == "nan") else str(val_gk).strip()
+
+                    # Hiển thị thông tin sinh viên
+                    st.success(f"Xin chào: **{name_val}** (MSSV: `{grade_mssv_input}`) - Lớp: **{class_val}**")
+                    
+                    c_info1, c_info2 = st.columns(2)
+                    with c_info1:
+                        st.info(f"📚 **Học phần:** {course_val if course_val else 'Thống kê Y học'}")
+                    with c_info2:
+                        st.info(f"🏛️ **Bộ môn / Khoa:** {sub_val} - {unit_val}")
+
+                    st.markdown("---")
+                    
+                    # Hiển thị 2 thẻ điểm số nổi bật
+                    m_col1, m_col2 = st.columns(2)
+                    with m_col1:
+                        st.metric(label="📝 ĐIỂM THƯỜNG KỲ (TX)", value=val_tx)
+                    with m_col2:
+                        st.metric(label="🎯 ĐIỂM GIỮA KỲ (GK)", value=val_gk)
 # ----------------- TAB 3: DASHBOARD (ADMIN & ĐỒNG BỘ ONEDRIVE) -----------------
 with tabs[2]:
     st.subheader("🔒 BÁO CÁO & THỐNG KÊ QUẢN TRỊ")
